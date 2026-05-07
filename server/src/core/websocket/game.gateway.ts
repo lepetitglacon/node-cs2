@@ -18,25 +18,27 @@ interface GamePlayer {
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:3000'],
+    origin: process.env.CORS_ORIGIN || [
+      'http://localhost:5173',
+      'http://localhost:3000',
+    ],
     credentials: true,
   },
 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
-  server: Server
+  server!: Server
 
-  private logger = new Logger('GameGateway')
-  private gamePlayers = new Map<string, GamePlayer[]>()
+  private readonly logger = new Logger('GameGateway')
+  private readonly gamePlayers = new Map<string, GamePlayer[]>()
 
-  handleConnection(@ConnectedSocket() client: Socket) {
+  handleConnection(@ConnectedSocket() client: Socket): void {
     this.logger.log(`Client connected: ${client.id}`)
   }
 
-  handleDisconnect(@ConnectedSocket() client: Socket) {
+  handleDisconnect(@ConnectedSocket() client: Socket): void {
     this.logger.log(`Client disconnected: ${client.id}`)
 
-    // Remove player from all games
     for (const [gameId, players] of this.gamePlayers.entries()) {
       const index = players.findIndex((p) => p.socketId === client.id)
       if (index !== -1) {
@@ -44,7 +46,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         players.splice(index, 1)
         this.server.to(gameId).emit('playerLeft', {
           playerId: player.playerId,
-          gameId: gameId,
+          gameId,
           playersCount: players.length,
         })
       }
@@ -55,7 +57,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleJoinGame(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { gameId: string; playerId: string },
-  ) {
+  ): void {
     const { gameId, playerId } = data
 
     if (!gameId || !playerId) {
@@ -63,37 +65,33 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return
     }
 
-    // Join the room
     client.join(gameId)
 
-    // Store player info
     if (!this.gamePlayers.has(gameId)) {
       this.gamePlayers.set(gameId, [])
     }
-    this.gamePlayers.get(gameId).push({
+
+    const gamePlayersList = this.gamePlayers.get(gameId)!
+    gamePlayersList.push({
       socketId: client.id,
       gameId,
       playerId,
     })
 
-    const players = this.gamePlayers.get(gameId)
-
     this.logger.log(`Player ${playerId} joined game ${gameId}`)
 
-    // Notify all players in the room
     this.server.to(gameId).emit('playerJoined', {
       playerId,
       gameId,
-      playersCount: players.length,
-      players: players.map((p) => p.playerId),
+      playersCount: gamePlayersList.length,
+      players: gamePlayersList.map((p) => p.playerId),
     })
 
-    // Send confirmation to the client
     client.emit('joinedGame', {
       gameId,
       playerId,
-      playersCount: players.length,
-      players: players.map((p) => p.playerId),
+      playersCount: gamePlayersList.length,
+      players: gamePlayersList.map((p) => p.playerId),
     })
   }
 
@@ -101,7 +99,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleLeaveGame(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { gameId: string; playerId: string },
-  ) {
+  ): void {
     const { gameId, playerId } = data
 
     if (!gameId) {
@@ -118,7 +116,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.logger.log(`Player ${playerId} left game ${gameId}`)
 
-    // Notify remaining players
     this.server.to(gameId).emit('playerLeft', {
       playerId,
       gameId,
@@ -131,7 +128,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleGameMessage(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { gameId: string; message: string; playerId: string },
-  ) {
+  ): void {
     const { gameId, message, playerId } = data
 
     if (!gameId) {
@@ -140,7 +137,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.logger.log(`Message in game ${gameId} from ${playerId}: ${message}`)
 
-    // Broadcast message to all players in the game
     this.server.to(gameId).emit('gameMessage', {
       gameId,
       playerId,

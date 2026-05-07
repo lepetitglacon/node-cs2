@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { Link as RouterLink } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Loader } from 'lucide-react'
 import { useGames } from '@/hooks/useGames'
+import { useJoinGame } from '@/hooks/useJoinGame'
 import { CreateGameModal } from './CreateGameModal'
 
 export const GamesList = () => {
+  const navigate = useNavigate()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
+  const [joiningGameId, setJoiningGameId] = useState<string | null>(null)
   const { data: games, isLoading, isError, error } = useGames()
+  const { mutate: joinGame, isPending: isJoining } = useJoinGame()
 
   if (isLoading) {
     return (
@@ -59,9 +63,8 @@ export const GamesList = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {games?.map((game) => (
-              <RouterLink
+              <div
                 key={game._id}
-                to={`/game/${game._id}`}
                 className="block group"
               >
                 <div className="bg-white rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-md transition p-6 h-full flex flex-col gap-4">
@@ -109,13 +112,26 @@ export const GamesList = () => {
 
                   {/* Button */}
                   <button
-                    onClick={(e) => e.preventDefault()}
-                    className="w-full px-4 py-2 bg-purple-600 text-white rounded font-bold text-sm hover:bg-purple-700 transition mt-auto"
+                    onClick={() => {
+                      setJoiningGameId(game._id)
+                      joinGame(game._id, {
+                        onSuccess: () => {
+                          navigate(`/game/${game._id}`)
+                        },
+                        onError: (error: any) => {
+                          const message = error.response?.data?.message || 'Impossible de rejoindre'
+                          alert(message)
+                          setJoiningGameId(null)
+                        },
+                      })
+                    }}
+                    disabled={isJoining && joiningGameId === game._id}
+                    className="w-full px-4 py-2 bg-purple-600 text-white rounded font-bold text-sm hover:bg-purple-700 transition mt-auto disabled:opacity-50"
                   >
-                    Rejoindre
+                    {isJoining && joiningGameId === game._id ? 'Chargement...' : 'Rejoindre'}
                   </button>
                 </div>
-              </RouterLink>
+              </div>
             ))}
           </div>
         )}
