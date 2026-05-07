@@ -1,20 +1,18 @@
 import { useMutation } from '@tanstack/react-query'
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+import { useApi } from '@/contexts/ApiContext'
 
 interface JoinGameResponse {
   success: boolean
   message: string
 }
 
-const joinGameApi = async (gameId: string): Promise<JoinGameResponse> => {
-  const { data } = await axios.post(`${API_URL}/game/${gameId}/join`)
-  return data
-}
-
 export const useJoinGame = () => {
+  const { api } = useApi()
+
   return useMutation({
-    mutationFn: joinGameApi,
+    mutationFn: async (gameId: string): Promise<JoinGameResponse> => {
+      const { data } = await api.post(`/game/${gameId}/join`)
+      return data
+    },
   })
 }

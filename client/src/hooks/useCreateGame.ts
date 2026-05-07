@@ -1,7 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import axios from 'axios'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+import { useApi } from '@/contexts/ApiContext'
 
 interface CreateGameDto {
   name: string
@@ -18,16 +16,15 @@ interface Game {
   updatedAt: string
 }
 
-const createGame = async (data: CreateGameDto): Promise<Game> => {
-  const { data: response } = await axios.post(`${API_URL}/game`, data)
-  return response
-}
-
 export const useCreateGame = () => {
+  const { api } = useApi()
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: createGame,
+    mutationFn: async (data: CreateGameDto): Promise<Game> => {
+      const { data: response } = await api.post('/game', data)
+      return response
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['games'] })
     },

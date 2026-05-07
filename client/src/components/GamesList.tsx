@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Loader } from 'lucide-react'
+import { Plus, Loader, LogOut } from 'lucide-react'
 import { useGames } from '@/hooks/useGames'
 import { useJoinGame } from '@/hooks/useJoinGame'
+import { useAuth } from '@/contexts/AuthContext'
 import { CreateGameModal } from './CreateGameModal'
 
 export const GamesList = () => {
   const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [joiningGameId, setJoiningGameId] = useState<string | null>(null)
   const { data: games, isLoading, isError, error } = useGames()
@@ -37,14 +39,26 @@ export const GamesList = () => {
       <div className="border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="flex justify-between items-center">
-            <h1 className="text-4xl font-bold text-gray-900">Liste des jeux</h1>
-            <button
-              onClick={() => setIsCreateOpen(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition"
-            >
-              <Plus size={20} />
-              Créer une partie
-            </button>
+            <div>
+              <h1 className="text-4xl font-bold text-gray-900">Liste des jeux</h1>
+              <p className="text-sm text-gray-500 mt-2">Connecté en tant que {user?.username}</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsCreateOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-lg font-bold hover:bg-purple-700 transition"
+              >
+                <Plus size={20} />
+                Créer une partie
+              </button>
+              <button
+                onClick={logout}
+                className="flex items-center gap-2 px-6 py-3 bg-gray-200 text-gray-900 rounded-lg font-bold hover:bg-gray-300 transition"
+              >
+                <LogOut size={20} />
+                Déconnexion
+              </button>
+            </div>
           </div>
         </div>
       </div>
