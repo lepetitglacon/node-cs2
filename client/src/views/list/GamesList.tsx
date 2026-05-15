@@ -9,25 +9,28 @@ export const GamesList = () => {
     client.joinOrCreate('lobby')
   )
 
+  const createRoom = async () => {
+    const room = await client.create('my_room')
+    navigate(`/game/${room.roomId}`)
+  }
+
   if (isConnecting) return <p>Connecting...</p>
   if (error) return <p>Error: {error.message}</p>
 
   return (
-    <ul>
-      {rooms.length === 0 && <>No rooms found.</>}
-      {rooms.map((room) => (
-        <li key={room.roomId}>
-          {room.roomId} - {room.name} — {room.clients}/{room.maxClients} players
-          <button
-            onClick={async () => {
-              await client.joinById(room.roomId)
-              navigate(`/game/${room.roomId}`)
-            }}
-          >
-            Join
-          </button>
-        </li>
-      ))}
-    </ul>
+    <>
+      <button onClick={createRoom}>Créer une partie</button>
+      <ul>
+        {rooms.length === 0 && <p>Aucune partie disponible.</p>}
+        {rooms.map((room) => (
+          <li key={room.roomId}>
+            {room.name} — {room.clients}/{room.maxClients} joueurs
+            <button onClick={() => navigate(`/game/${room.roomId}`)}>
+              Rejoindre
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
   )
 }

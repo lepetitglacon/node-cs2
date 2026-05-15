@@ -2,35 +2,43 @@ import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
 import { FreeCamera, Vector3 } from '@babylonjs/core'
 import type { Room } from '@colyseus/sdk'
+import { usePlayerInput } from '@/hooks/usePlayerInput.ts'
+import { useTickLoop } from '@/hooks/useTickLoop.ts'
+import { applyMovement } from '@/game/movement.ts'
 
 interface Props {
   room: Room
-  spawnPosition: { x: number; y: number; z: number }
+  player: { x: number; y: number; z: number }
 }
 
 const HEIGHT = 1.7
+const TICK_RATE = 64
+const SOFT_THRESHOLD = 0.3
+const HARD_THRESHOLD = 2.0
+const SOFT_CORRECTION = 0.15
 
-export const PlayerCamera = ({ room, spawnPosition }: Props) => {
+export const PlayerCamera = ({ room, player }: Props) => {
   const scene = useScene()
   const cameraRef = useRef<FreeCamera | null>(null)
-  const lastState = useRef({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 })
+  const roomRef = useRef(room)
+  roomRef.current = room
+  const input = usePlayerInput()
+  const velocity = useRef({ x: 0, z: 0 })
+  const predicted = useRef({ x: player.x, y: player.y, z: player.z })
 
   useEffect(() => {
     if (!scene) return
 
     const camera = new FreeCamera(
       'playerCamera',
-      new Vector3(spawnPosition.x, spawnPosition.y + HEIGHT, spawnPosition.z),
+      new Vector3(player.x, player.y + HEIGHT, player.z),
       scene,
     )
-    camera.setTarget(new Vector3(spawnPosition.x + 1, spawnPosition.y + HEIGHT, spawnPosition.z))
-
-    camera.keysUp = [90]    // Z
-    camera.keysLeft = [81]  // Q
-    camera.keysDown = [83]  // S
-    camera.keysRight = [68] // D
-    camera.speed = 0.15
-
+    camera.setTarget(new Vector3(player.x + 1, player.y + HEIGHT, player.z))
+    camera.keysUp = []
+    camera.keysLeft = []
+    camera.keysDown = []
+    camera.keysRight = []
     camera.attachControl(scene.getEngine().getRenderingCanvas(), true)
     scene.activeCamera = camera
     cameraRef.current = camera
@@ -41,21 +49,50 @@ export const PlayerCamera = ({ room, spawnPosition }: Props) => {
     }
   }, [scene])
 
+  // Physique à 64/s — même cadence que le serveur
+  useTickLoop(() => {
+    const camera = cameraRef.current
+    const r = roomRef.current
+    const serverPlayer = r.state?.players?.get(r.sessionId)
+    if (!camera || !serverPlayer) return
+
+    applyMovement(velocity.current, input.current, camera.rotation.y)
+    predicted.current.x += velocity.current.x
+    predicted.current.z += velocity.current.z
+    predicted.current.y = serverPlayer.y
+
+    const dx = serverPlayer.x - predicted.current.x
+    const dz = serverPlayer.z - predicted.current.z
+    const distance = Math.sqrt(dx * dx + dz * dz)
+
+    if (distance > HARD_THRESHOLD) {
+      predicted.current.x = serverPlayer.x
+      predicted.current.z = serverPlayer.z
+      velocity.current.x = 0
+      velocity.current.z = 0
+    } else if (distance > SOFT_THRESHOLD) {
+      predicted.current.x += dx * SOFT_CORRECTION
+      predicted.current.z += dz * SOFT_CORRECTION
+    }
+
+    r.send('playerInput', {
+      forward: input.current.forward,
+      back: input.current.back,
+      left: input.current.left,
+      right: input.current.right,
+      yaw: camera.rotation.y,
+      pitch: camera.rotation.x,
+    })
+  }, TICK_RATE)
+
+  // Rendu — lerp caméra vers position prédite chaque frame
   useBeforeRender(() => {
     const camera = cameraRef.current
     if (!camera) return
 
-    const x = camera.position.x
-    const y = camera.position.y - HEIGHT
-    const z = camera.position.z
-    const yaw = camera.rotation.y
-    const pitch = camera.rotation.x
-
-    const prev = lastState.current
-    if (x !== prev.x || y !== prev.y || z !== prev.z || yaw !== prev.yaw || pitch !== prev.pitch) {
-      lastState.current = { x, y, z, yaw, pitch }
-      room.send('playerMove', { x, y, z, yaw, pitch })
-    }
+    camera.position.x += (predicted.current.x - camera.position.x) * 0.8
+    camera.position.y += (predicted.current.y + HEIGHT - camera.position.y) * 0.8
+    camera.position.z += (predicted.current.z - camera.position.z) * 0.8
   })
 
   return null

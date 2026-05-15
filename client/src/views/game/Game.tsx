@@ -2,15 +2,16 @@ import { Scene, Engine } from 'react-babylonjs'
 import { Vector3 } from '@babylonjs/core'
 import { useRoom, useRoomState } from './roomContext.ts'
 import { PlayerCamera } from './PlayerCamera.tsx'
+import { OtherPlayer } from './OtherPlayer.tsx'
 
 export const Game = () => {
   const { room } = useRoom()
-  const players = useRoomState((s) => s?.players)
+  const state = useRoomState()
 
-  if (!room || !players) return null
+  if (!room || !state) return null
 
-  const currentPlayer = players[room.sessionId]
-  if (!currentPlayer) return null
+  const players = state.players
+  const currentPlayer = players?.[room.sessionId]
 
   return (
     <div style={{ width: '100vw', height: '100vh' }}>
@@ -21,26 +22,17 @@ export const Game = () => {
         renderOptions={{ whenVisibleOnly: true }}
       >
         <Scene>
-          <hemisphericLight
-            name="light1"
-            intensity={0.7}
-            direction={new Vector3(0, 1, 0)}
-          />
+          <hemisphericLight name="light1" intensity={0.7} direction={new Vector3(0, 1, 0)} />
           <ground name="ground" width={20} height={20} />
 
-          <PlayerCamera room={room} spawnPosition={currentPlayer} />
+          {currentPlayer && <PlayerCamera room={room} player={currentPlayer} />}
 
-          {Object.entries(players).map(([pid, player]) =>
-            pid !== room.sessionId ? (
-              <box
-                key={pid}
-                name={`player-${pid}`}
-                size={1}
-                position={new Vector3(player.x, player.y, player.z)}
-                rotation={Vector3.Zero()}
-              />
-            ) : null
-          )}
+          {players &&
+            Object.entries(players).map(([pid, player]) =>
+              pid !== room.sessionId ? (
+                <OtherPlayer key={pid} name={`player-${pid}`} player={player} />
+              ) : null,
+            )}
         </Scene>
       </Engine>
     </div>
