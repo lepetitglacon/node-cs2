@@ -15,7 +15,7 @@ const HEIGHT = 1.7
 const TICK_RATE = 64
 const SOFT_THRESHOLD = 0.3
 const HARD_THRESHOLD = 2.0
-const SOFT_CORRECTION = 0.15
+const SOFT_CORRECTION = 0.05
 
 export const PlayerCamera = ({ room, player }: Props) => {
   const scene = useScene()
@@ -32,18 +32,25 @@ export const PlayerCamera = ({ room, player }: Props) => {
     const camera = new FreeCamera(
       'playerCamera',
       new Vector3(player.x, player.y + HEIGHT, player.z),
-      scene,
+      scene
     )
     camera.setTarget(new Vector3(player.x + 1, player.y + HEIGHT, player.z))
     camera.keysUp = []
     camera.keysLeft = []
     camera.keysDown = []
     camera.keysRight = []
-    camera.attachControl(scene.getEngine().getRenderingCanvas(), true)
+    camera.inertia = 0
+    const canvas = scene.getEngine().getRenderingCanvas()!
+    camera.attachControl(canvas, true)
     scene.activeCamera = camera
     cameraRef.current = camera
 
+    const requestLock = () => canvas.requestPointerLock()
+    canvas.addEventListener('click', requestLock)
+
     return () => {
+      canvas.removeEventListener('click', requestLock)
+      document.exitPointerLock()
       camera.detachControl()
       camera.dispose()
     }
@@ -91,7 +98,8 @@ export const PlayerCamera = ({ room, player }: Props) => {
     if (!camera) return
 
     camera.position.x += (predicted.current.x - camera.position.x) * 0.8
-    camera.position.y += (predicted.current.y + HEIGHT - camera.position.y) * 0.8
+    camera.position.y +=
+      (predicted.current.y + HEIGHT - camera.position.y) * 0.8
     camera.position.z += (predicted.current.z - camera.position.z) * 0.8
   })
 
