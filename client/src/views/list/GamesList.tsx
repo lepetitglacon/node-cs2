@@ -1,8 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useLobbyRoom } from '@colyseus/react'
-import { Client } from '@colyseus/sdk'
-
-export const client = new Client('ws://localhost:2567')
+import { client } from '@/services/colyseus.service.ts'
 
 export const GamesList = () => {
   const navigate = useNavigate()

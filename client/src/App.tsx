@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { GamesList } from '@/components/GamesList'
-import { GameDetail } from '@/components/GameDetail'
+import { GamesList } from '@/views/list/GamesList.tsx'
+import { GameDetail } from '@/views/game/GameDetail.tsx'
 
 const queryClient = new QueryClient()
 
