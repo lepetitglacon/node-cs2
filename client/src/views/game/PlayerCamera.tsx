@@ -11,6 +11,7 @@ import {
 import type { Room } from '@colyseus/sdk'
 import { usePlayerInput } from '@/hooks/usePlayerInput.ts'
 import { useTickLoop } from '@/hooks/useTickLoop.ts'
+import { applyMovement } from '@/game/movement.ts'
 
 interface Props {
   room: Room
@@ -20,7 +21,7 @@ interface Props {
 
 const HEIGHT = 1.7
 const BODY_Y_OFFSET = 0.85
-const LERP = 0.1
+const RECONCILE_LERP = 0.05
 const TICK_RATE = 64
 
 export const PlayerCamera = ({ room, player, isDebug }: Props) => {
@@ -33,8 +34,14 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
   roomRef.current = room
   const input = usePlayerInput()
 
+  const localPos = useRef({ x: player.x, y: player.y, z: player.z })
+  const localVel = useRef({ x: 0, z: 0 })
+
   useEffect(() => {
     if (!scene) return
+
+    localPos.current = { x: player.x, y: player.y, z: player.z }
+    localVel.current = { x: 0, z: 0 }
 
     const canvas = scene.getEngine().getRenderingCanvas()!
     const camera = new FreeCamera(
@@ -55,7 +62,6 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const requestLock = () => canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
 
-    // Capsule de debug (position serveur brute)
     const mat = new StandardMaterial('debug-local-mat', scene)
     mat.wireframe = true
     mat.emissiveColor = new Color3(0, 1, 0)
@@ -82,9 +88,17 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
     if (!camera || !p) return
 
-    camera.position.x += (p.x - camera.position.x) * LERP
-    camera.position.y += (p.y + HEIGHT - camera.position.y) * LERP
-    camera.position.z += (p.z - camera.position.z) * LERP
+    // Y toujours serveur (gravité)
+    localPos.current.y = p.y
+
+    // Réconciliation : lerp vers la position serveur si écart
+    localPos.current.x += (p.x - localPos.current.x) * RECONCILE_LERP
+    localPos.current.z += (p.z - localPos.current.z) * RECONCILE_LERP
+
+    // Caméra suit la position locale instantanément (pas de lerp ici)
+    camera.position.x = localPos.current.x
+    camera.position.y = localPos.current.y + HEIGHT
+    camera.position.z = localPos.current.z
 
     const debug = debugMeshRef.current
     if (debug) {
@@ -98,6 +112,11 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
   useTickLoop(() => {
     const camera = cameraRef.current
     if (!camera) return
+
+    // Prédiction locale : même physique que le serveur
+    applyMovement(localVel.current, input.current, camera.rotation.y)
+    localPos.current.x += localVel.current.x
+    localPos.current.z += localVel.current.z
 
     roomRef.current.send('playerInput', {
       forward: input.current.forward,
