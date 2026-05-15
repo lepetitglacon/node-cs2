@@ -1,26 +1,29 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
 import { MeshBuilder, Quaternion, type Mesh } from '@babylonjs/core'
+import { useRoom } from './roomContext.ts'
 
 interface Props {
+  pid: string
   name: string
-  player: { x: number; y: number; z: number; qx: number; qy: number; qz: number; qw: number }
 }
 
 const LERP = 0.2
 
-export const OtherPlayer = ({ name, player }: Props) => {
+export const OtherPlayer = ({ pid, name }: Props) => {
   const scene = useScene()
+  const { room } = useRoom()
+  const roomRef = useRef(room)
+  roomRef.current = room
   const meshRef = useRef<Mesh | null>(null)
-  const playerRef = useRef(player)
-  playerRef.current = player
 
   useEffect(() => {
     if (!scene) return
 
+    const p = roomRef.current?.state?.players?.get(pid)
     const mesh = MeshBuilder.CreateBox(name, { size: 1 }, scene)
-    mesh.position.set(player.x, player.y + 0.5, player.z)
-    mesh.rotationQuaternion = new Quaternion(player.qx, player.qy, player.qz, player.qw)
+    mesh.position.set(p?.x ?? 0, (p?.y ?? 0) + 0.5, p?.z ?? 0)
+    mesh.rotationQuaternion = new Quaternion(p?.qx ?? 0, p?.qy ?? 0, p?.qz ?? 0, p?.qw ?? 1)
     meshRef.current = mesh
 
     return () => mesh.dispose()
@@ -28,8 +31,8 @@ export const OtherPlayer = ({ name, player }: Props) => {
 
   useBeforeRender(() => {
     const mesh = meshRef.current
-    const p = playerRef.current
-    if (!mesh) return
+    const p = roomRef.current?.state?.players?.get(pid)
+    if (!mesh || !p) return
 
     mesh.position.x += (p.x - mesh.position.x) * LERP
     mesh.position.y += (p.y + 0.5 - mesh.position.y) * LERP

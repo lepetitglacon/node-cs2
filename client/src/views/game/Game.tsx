@@ -28,9 +28,9 @@ export const Game = () => {
           {currentPlayer && <PlayerCamera room={room} player={currentPlayer} />}
 
           {players &&
-            Object.entries(players).map(([pid, player]) =>
+            Object.entries(players).map(([pid]) =>
               pid !== room.sessionId ? (
-                <OtherPlayer key={pid} name={`player-${pid}`} player={player} />
+                <OtherPlayer key={pid} pid={pid} name={`player-${pid}`} />
               ) : null,
             )}
         </Scene>
