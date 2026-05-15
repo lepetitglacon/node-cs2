@@ -7,6 +7,11 @@ import {
     createRouter,
     createEndpoint
 } from "colyseus";
+import express from "express";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Import your Room files
@@ -42,6 +47,9 @@ const server = defineServer({
      * Read more: https://expressjs.com/en/starter/basic-routing.html
      */
     express: (app) => {
+        app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
+        console.log(`serving statics ${path.join(__dirname, "../public/assets")}`)
+
         app.get("/hi", (req, res) => {
             res.send("It's time to kick ass and chew bubblegum!");
         });

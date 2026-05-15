@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
-import { MeshBuilder, Quaternion, StandardMaterial, Color3, type Mesh } from '@babylonjs/core'
+import { SceneLoader, MeshBuilder, Quaternion, Vector3, StandardMaterial, Color3, type Mesh, type AbstractMesh, type AnimationGroup } from '@babylonjs/core'
+import '@babylonjs/loaders/glTF'
 import { useRoom } from './roomContext.ts'
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
 
 const LERP = 0.2
 const BODY_Y_OFFSET = 0.85
+const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
+const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
 export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const scene = useScene()
@@ -19,17 +22,35 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   roomRef.current = room
   const isDebugRef = useRef(isDebug)
   isDebugRef.current = isDebug
-  const meshRef = useRef<Mesh | null>(null)
+  const meshRef = useRef<AbstractMesh | null>(null)
   const debugMeshRef = useRef<Mesh | null>(null)
+  const animGroupsRef = useRef<AnimationGroup[]>([])
 
   useEffect(() => {
     if (!scene) return
 
     const p = roomRef.current?.state?.players?.get(pid)
-    const mesh = MeshBuilder.CreateBox(name, { size: 1 }, scene)
-    mesh.position.set(p?.x ?? 0, (p?.y ?? 0) + 0.5, p?.z ?? 0)
-    mesh.rotationQuaternion = new Quaternion(p?.qx ?? 0, p?.qy ?? 0, p?.qz ?? 0, p?.qw ?? 1)
-    meshRef.current = mesh
+    let rootMesh: AbstractMesh | null = null
+    let cancelled = false
+
+    SceneLoader.ImportMeshAsync('', MODEL_URL, '', scene).then((result) => {
+      if (cancelled) {
+        result.meshes.forEach((m) => m.dispose())
+        result.animationGroups.forEach((ag) => ag.dispose())
+        return
+      }
+      rootMesh = result.meshes[0]
+      rootMesh.name = name
+      rootMesh.position.set(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0)
+      const serverQuat = new Quaternion(p?.qx ?? 0, p?.qy ?? 0, p?.qz ?? 0, p?.qw ?? 1)
+      rootMesh.rotationQuaternion = serverQuat.multiply(MODEL_OFFSET)
+      meshRef.current = rootMesh
+
+      animGroupsRef.current = result.animationGroups
+      result.animationGroups.forEach((ag) => ag.stop())
+      const idle = result.animationGroups.find((ag) => ag.name === 'idle.001')
+      idle?.start(true)
+    })
 
     const mat = new StandardMaterial(`debug-${pid}-mat`, scene)
     mat.wireframe = true
@@ -40,7 +61,10 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     debugMeshRef.current = debugMesh
 
     return () => {
-      mesh.dispose()
+      cancelled = true
+      animGroupsRef.current.forEach((ag) => ag.dispose())
+      meshRef.current?.dispose()
+      meshRef.current = null
       debugMesh.dispose()
     }
   }, [scene])
@@ -55,12 +79,8 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     mesh.position.z += (p.z - mesh.position.z) * LERP
 
     if (mesh.rotationQuaternion) {
-      Quaternion.SlerpToRef(
-        mesh.rotationQuaternion,
-        new Quaternion(p.qx, p.qy, p.qz, p.qw),
-        LERP,
-        mesh.rotationQuaternion,
-      )
+      const target = new Quaternion(p.qx, p.qy, p.qz, p.qw).multiply(MODEL_OFFSET)
+      Quaternion.SlerpToRef(mesh.rotationQuaternion, target, LERP, mesh.rotationQuaternion)
     }
 
     const debug = debugMeshRef.current

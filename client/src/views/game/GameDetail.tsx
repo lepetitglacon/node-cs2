@@ -11,7 +11,7 @@ export const GameDetail = () => {
     <RoomProvider
       connect={async () => {
         try {
-          return client.joinById(id)
+          return await client.joinById(id)
         } catch (e) {
           navigate('/')
         }

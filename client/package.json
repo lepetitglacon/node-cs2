@@ -13,6 +13,7 @@
   "dependencies": {
     "@babylonjs/core": "^9.7.0",
     "@babylonjs/gui": "^9.7.0",
+    "@babylonjs/loaders": "^9.7.0",
     "@chakra-ui/react": "^3.35.0",
     "@colyseus/react": "^0.1.15",
     "@colyseus/sdk": "^0.17.42",
