@@ -49,6 +49,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
       new Vector3(player.x, player.y + HEIGHT, player.z),
       scene
     )
+    camera.minZ = 0.2
     camera.setTarget(new Vector3(player.x + 1, player.y + HEIGHT, player.z))
     camera.keysUp = []
     camera.keysLeft = []
