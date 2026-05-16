@@ -65,11 +65,12 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     canvas.addEventListener('click', requestLock)
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && document.pointerLockElement) shootPending.current = true
+      if (e.button === 0 && document.pointerLockElement)
+        shootPending.current = true
     }
     document.addEventListener('mousedown', handleMouseDown)
 
-const mat = new StandardMaterial('debug-local-mat', scene)
+    const mat = new StandardMaterial('debug-local-mat', scene)
     mat.wireframe = true
     mat.emissiveColor = new Color3(0, 1, 0)
     const debugMesh = MeshBuilder.CreateCapsule(
@@ -90,6 +91,12 @@ const mat = new StandardMaterial('debug-local-mat', scene)
       debugMesh.dispose()
     }
   }, [scene])
+
+  // useEffect(() => {
+  //   if (playerState === 'DEAD') {
+  //     document.exitPointerLock()
+  //   }
+  // }, [playerState])
 
   useBeforeRender(() => {
     const camera = cameraRef.current

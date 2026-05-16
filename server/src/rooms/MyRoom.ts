@@ -39,6 +39,13 @@ export class MyRoom extends Room {
     this.onMessage("playerInput", (client: Client, message: any) => {
       this.pendingInputs.set(client.sessionId, message);
     });
+    this.onMessage("respawn", (client: Client, message: any) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return
+      if (player.state === 'alive') return
+      player.state = 'alive';
+      player.health = 100
+    });
 
     this.setSimulationInterval((dt) => this.update(dt), 1000 / 60);
   }
@@ -102,6 +109,11 @@ export class MyRoom extends Room {
       player.y = pos.y - BODY_Y_OFFSET;
       player.z = pos.z;
       player.headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
+
+      // check for dead state
+      if (player.health <= 0) {
+        player.state = 'dead'
+      }
     });
   }
 

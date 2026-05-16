@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from 'react-router-dom'
 import { client } from '@/services/colyseus.service.ts'
 import { RoomProvider } from './roomContext.ts'
+import { GameProvider } from './GameContext.tsx'
 import { Game } from './Game.tsx'
 
 export const GameDetail = () => {
@@ -17,7 +18,9 @@ export const GameDetail = () => {
         }
       }}
     >
-      <Game />
+      <GameProvider>
+        <Game />
+      </GameProvider>
     </RoomProvider>
   )
 }
