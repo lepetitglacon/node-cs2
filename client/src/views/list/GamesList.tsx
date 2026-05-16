@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLobbyRoom } from '@colyseus/react'
 import { client } from '@/services/colyseus.service.ts'
@@ -5,9 +6,15 @@ import { client } from '@/services/colyseus.service.ts'
 export const GamesList = () => {
   const navigate = useNavigate()
 
-  const { rooms, error, isConnecting } = useLobbyRoom(() =>
+  const { rooms, room: lobbyRoom, error, isConnecting } = useLobbyRoom(() =>
     client.joinOrCreate('lobby')
   )
+
+  // Le message "rooms" du serveur arrive avant que useLobbyRoom enregistre son handler
+  // dans useEffect. On redemande la liste via "filter" une fois les handlers en place.
+  useEffect(() => {
+    if (lobbyRoom) lobbyRoom.send('filter')
+  }, [lobbyRoom])
 
   const createRoom = async () => {
     const room = await client.create('my_room')
