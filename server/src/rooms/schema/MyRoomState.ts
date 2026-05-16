@@ -8,6 +8,7 @@ export class Player extends Schema {
   @type("number") qy: number = 0;
   @type("number") qz: number = 0;
   @type("number") qw: number = 1;
+  @type("number") headY: number = 0;
 }
 
 export class MyRoomState extends Schema {

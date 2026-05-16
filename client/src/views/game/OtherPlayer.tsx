@@ -8,6 +8,7 @@ import {
   StandardMaterial,
   Color3,
   type Mesh,
+  type LinesMesh,
   type AbstractMesh,
   type AnimationGroup,
 } from '@babylonjs/core'
@@ -22,6 +23,7 @@ interface Props {
 
 const LERP = 0.2
 const BODY_Y_OFFSET = 0.85
+const AIM_RAY_LENGTH = 50
 const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
@@ -34,6 +36,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   isDebugRef.current = isDebug
   const meshRef = useRef<AbstractMesh | null>(null)
   const debugMeshRef = useRef<Mesh | null>(null)
+  const aimLineRef = useRef<LinesMesh | null>(null)
   const animGroupsRef = useRef<AnimationGroup[]>([])
 
   useEffect(() => {
@@ -79,12 +82,22 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     debugMesh.isVisible = false
     debugMeshRef.current = debugMesh
 
+    const aimLine = MeshBuilder.CreateLines(
+      `aim-${pid}`,
+      { points: [Vector3.Zero(), Vector3.One()], updatable: true },
+      scene
+    ) as LinesMesh
+    aimLine.color = new Color3(1, 0, 0)
+    aimLine.isVisible = false
+    aimLineRef.current = aimLine
+
     return () => {
       cancelled = true
       animGroupsRef.current.forEach((ag) => ag.dispose())
       meshRef.current?.dispose()
       meshRef.current = null
       debugMesh.dispose()
+      aimLine.dispose()
     }
   }, [scene])
 
@@ -98,9 +111,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     mesh.position.z += (p.z - mesh.position.z) * LERP
 
     if (mesh.rotationQuaternion) {
-      const target = new Quaternion(p.qx, p.qy, p.qz, p.qw).multiply(
-        MODEL_OFFSET
-      )
+      const target = new Quaternion(0, p.qy, 0, p.qw).multiply(MODEL_OFFSET)
       Quaternion.SlerpToRef(
         mesh.rotationQuaternion,
         target,
@@ -114,6 +125,25 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       debug.isVisible = isDebugRef.current
       if (isDebugRef.current) {
         debug.position.set(p.x, p.y + BODY_Y_OFFSET, p.z)
+      }
+    }
+
+    const aimLine = aimLineRef.current
+    if (aimLine) {
+      aimLine.isVisible = isDebugRef.current
+      if (isDebugRef.current) {
+        // Vecteur avant depuis le quaternion (coordonnées left-handed BabylonJS, forward = +Z)
+        const { qx, qy, qz, qw } = p
+        const fwdX = 2 * (qx * qz + qy * qw)
+        const fwdY = 2 * (qy * qz - qx * qw)
+        const fwdZ = 1 - 2 * (qx * qx + qy * qy)
+        const origin = new Vector3(p.x, p.headY, p.z)
+        const end = new Vector3(
+          p.x + fwdX * AIM_RAY_LENGTH,
+          p.headY + fwdY * AIM_RAY_LENGTH,
+          p.z + fwdZ * AIM_RAY_LENGTH
+        )
+        MeshBuilder.CreateLines(`aim-${pid}`, { points: [origin, end], instance: aimLine })
       }
     }
   })

@@ -6,8 +6,9 @@ import RAPIER from "@dimforge/rapier3d-compat";
 const FLOOR_SIZE = 10;
 const CAPSULE_HALF_HEIGHT = 0.6;
 const CAPSULE_RADIUS = 0.25;
-// Distance entre les pieds du joueur et le centre du corps physique
 const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
+const EYE_HEIGHT = 1.60;
+const MAX_RAY_DIST = 50;
 
 export class MyRoom extends Room {
   maxClients = 4;
@@ -59,6 +60,15 @@ export class MyRoom extends Room {
       player.qy = sy * cp;
       player.qz = -sy * sp;
       player.qw = cy * cp;
+
+      // Raycast depuis la tête dans la direction du regard
+      const pos = body.translation();
+      const headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
+      const dirX = Math.sin(yaw) * Math.cos(pitch);
+      const dirY = -Math.sin(pitch);
+      const dirZ = Math.cos(yaw) * Math.cos(pitch);
+      const ray = new RAPIER.Ray({ x: pos.x, y: headY, z: pos.z }, { x: dirX, y: dirY, z: dirZ });
+      this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
     });
 
     this.world.step();
@@ -71,6 +81,7 @@ export class MyRoom extends Room {
       player.x = pos.x;
       player.y = pos.y - BODY_Y_OFFSET;
       player.z = pos.z;
+      player.headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
     });
   }
 
