@@ -92,25 +92,22 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     }
   }, [scene])
 
-  // useEffect(() => {
-  //   if (playerState === 'DEAD') {
-  //     document.exitPointerLock()
-  //   }
-  // }, [playerState])
-
   useBeforeRender(() => {
     const camera = cameraRef.current
     const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
-    if (!camera || !p) return
+    if (!camera || !p || !scene) return
 
-    // Y toujours serveur (gravité)
+    if (p.state === 'dead') {
+      camera.position.x = p.x
+      camera.position.y = p.headY
+      camera.position.z = p.z
+      return
+    }
+
     localPos.current.y = p.y
-
-    // Réconciliation : lerp vers la position serveur si écart
     localPos.current.x += (p.x - localPos.current.x) * RECONCILE_LERP
     localPos.current.z += (p.z - localPos.current.z) * RECONCILE_LERP
 
-    // Caméra suit la position locale instantanément (pas de lerp ici)
     camera.position.x = localPos.current.x
     camera.position.y = localPos.current.y + HEIGHT
     camera.position.z = localPos.current.z
@@ -128,7 +125,6 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const camera = cameraRef.current
     if (!camera) return
 
-    // Prédiction locale : même physique que le serveur
     applyMovement(localVel.current, input.current, camera.rotation.y)
     localPos.current.x += localVel.current.x
     localPos.current.z += localVel.current.z

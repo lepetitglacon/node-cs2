@@ -3,6 +3,7 @@ import { Vector3 } from '@babylonjs/core'
 import { useDebugMode } from '@/hooks/useDebugMode.ts'
 import { useGame } from './GameContext.tsx'
 import { PlayerCamera } from './PlayerCamera.tsx'
+import { WeaponManager } from './WeaponManager.tsx'
 import { OtherPlayer } from './OtherPlayer.tsx'
 import { GameOverlay } from '@/components/GameOverlay.tsx'
 import { DeathScreen } from '@/components/DeathScreen.tsx'
@@ -57,6 +58,7 @@ export const Game = () => {
             player={currentPlayer!}
             isDebug={isDebug}
           />
+          <WeaponManager />
 
           {otherPlayers &&
             Object.entries(otherPlayers).map(([pid]) =>
