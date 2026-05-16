@@ -36,6 +36,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
 
   const localPos = useRef({ x: player.x, y: player.y, z: player.z })
   const localVel = useRef({ x: 0, z: 0 })
+  const shootPending = useRef(false)
 
   useEffect(() => {
     if (!scene) return
@@ -63,7 +64,12 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const requestLock = () => canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
 
-    const mat = new StandardMaterial('debug-local-mat', scene)
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button === 0 && document.pointerLockElement) shootPending.current = true
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+
+const mat = new StandardMaterial('debug-local-mat', scene)
     mat.wireframe = true
     mat.emissiveColor = new Color3(0, 1, 0)
     const debugMesh = MeshBuilder.CreateCapsule(
@@ -77,6 +83,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
 
     return () => {
       canvas.removeEventListener('click', requestLock)
+      document.removeEventListener('mousedown', handleMouseDown)
       document.exitPointerLock()
       camera.detachControl()
       camera.dispose()
@@ -126,7 +133,9 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
       right: input.current.right,
       yaw: camera.rotation.y,
       pitch: camera.rotation.x,
+      shoot: shootPending.current,
     })
+    shootPending.current = false
   }, TICK_RATE)
 
   return null

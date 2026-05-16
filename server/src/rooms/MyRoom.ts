@@ -9,6 +9,8 @@ const CAPSULE_RADIUS = 0.25;
 const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 const EYE_HEIGHT = 1.60;
 const MAX_RAY_DIST = 50;
+const SHOOT_COOLDOWN = 500;
+const BULLET_DAMAGE = 10;
 
 export class MyRoom extends Room {
   maxClients = 4;
@@ -18,6 +20,9 @@ export class MyRoom extends Room {
   playerBodies = new Map<string, RAPIER.RigidBody>();
   playerVelocities = new Map<string, { x: number; z: number }>();
   pendingInputs = new Map<string, any>();
+  colliderOwners = new Map<number, string>();
+  playerColliderHandles = new Map<string, number>();
+  playerLastShot = new Map<string, number>();
 
   async onCreate(options: any) {
     await RAPIER.init();
@@ -68,7 +73,22 @@ export class MyRoom extends Room {
       const dirY = -Math.sin(pitch);
       const dirZ = Math.cos(yaw) * Math.cos(pitch);
       const ray = new RAPIER.Ray({ x: pos.x, y: headY, z: pos.z }, { x: dirX, y: dirY, z: dirZ });
-      this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+      const hit = this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+
+      if (input.shoot) {
+        const now = Date.now();
+        const lastShot = this.playerLastShot.get(sessionId) ?? 0;
+        if (now - lastShot >= SHOOT_COOLDOWN) {
+          this.playerLastShot.set(sessionId, now);
+          if (hit) {
+            const hitOwnerId = this.colliderOwners.get(hit.collider.handle);
+            if (hitOwnerId) {
+              const target = this.state.players.get(hitOwnerId);
+              if (target) target.health = Math.max(0, target.health - BULLET_DAMAGE);
+            }
+          }
+        }
+      }
     });
 
     this.world.step();
@@ -99,10 +119,12 @@ export class MyRoom extends Room {
       .setTranslation(spawnX, BODY_Y_OFFSET + 0.5, spawnZ)
       .lockRotations();
     const body = this.world.createRigidBody(bodyDesc);
-    this.world.createCollider(
+    const collider = this.world.createCollider(
       RAPIER.ColliderDesc.capsule(CAPSULE_HALF_HEIGHT, CAPSULE_RADIUS),
       body,
     );
+    this.colliderOwners.set(collider.handle, client.sessionId);
+    this.playerColliderHandles.set(client.sessionId, collider.handle);
 
     const player = new Player();
     player.x = spawnX;
@@ -111,6 +133,7 @@ export class MyRoom extends Room {
 
     this.playerBodies.set(client.sessionId, body);
     this.playerVelocities.set(client.sessionId, { x: 0, z: 0 });
+    this.playerLastShot.set(client.sessionId, 0);
     this.state.players.set(client.sessionId, player);
   }
 
@@ -118,6 +141,10 @@ export class MyRoom extends Room {
     const body = this.playerBodies.get(client.sessionId);
     if (body) this.world.removeRigidBody(body);
 
+    const handle = this.playerColliderHandles.get(client.sessionId);
+    if (handle !== undefined) this.colliderOwners.delete(handle);
+    this.playerColliderHandles.delete(client.sessionId);
+    this.playerLastShot.delete(client.sessionId);
     this.playerBodies.delete(client.sessionId);
     this.playerVelocities.delete(client.sessionId);
     this.pendingInputs.delete(client.sessionId);
