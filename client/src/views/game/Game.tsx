@@ -58,7 +58,7 @@ export const Game = () => {
             player={currentPlayer!}
             isDebug={isDebug}
           />
-          <WeaponManager />
+          <WeaponManager room={room!} />
 
           {otherPlayers &&
             Object.entries(otherPlayers).map(([pid]) =>

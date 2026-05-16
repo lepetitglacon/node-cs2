@@ -1,44 +1,42 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
-import {
-  FreeCamera,
-  SceneLoader,
-  Vector3,
-  type AbstractMesh,
-} from '@babylonjs/core'
+import { SceneLoader, Vector3, type AbstractMesh } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
+import type { Room } from '@colyseus/sdk'
+
+interface Props {
+  room: Room
+}
 
 const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
 const WEAPON_OFFSET = new Vector3(0.15, -0.25, 0.4)
 const WEAPON_ROTATION = new Vector3(0, Math.PI * 1.5, 0)
-const WEAPON_LAYER = 0x10000000
+const WEAPON_GROUP = 2
 
 const SWAY_SENSITIVITY = 0.0015
 const SWAY_MAX = 0.06
 const SWAY_LERP = 0.08
 const SWAY_DECAY = 0.8
 
-export const WeaponManager = () => {
+const RECOIL_APPLY_LERP = 0.4
+const RECOIL_RECOVERY_LERP = 0.06
+const RECOIL_RECOVERY_DELAY = 250
+
+export const WeaponManager = ({ room }: Props) => {
   const scene = useScene()
   const meshRef = useRef<AbstractMesh | null>(null)
-  const weaponCameraRef = useRef<FreeCamera | null>(null)
   const swayRef = useRef({ x: 0, y: 0 })
   const mouseDeltaRef = useRef({ x: 0, y: 0 })
+  const targetRecoilRef = useRef({ pitch: 0, yaw: 0 })
+  const appliedRecoilRef = useRef({ pitch: 0, yaw: 0 })
+  const lastRecoilTimeRef = useRef(0)
 
   useEffect(() => {
     if (!scene) return
 
-    // Weapon camera: only renders WEAPON_LAYER, clears depth so weapon always renders on top
-    const weaponCamera = new FreeCamera('weaponCamera', Vector3.Zero(), scene)
-    weaponCamera.layerMask = WEAPON_LAYER
-    weaponCamera.minZ = 0.01
-    weaponCamera.maxZ = 10
-    weaponCamera.parent = scene.activeCamera
-    scene.activeCameras = [scene.activeCamera!, weaponCamera]
-    weaponCameraRef.current = weaponCamera
-
-    // Main camera excludes weapon layer
-    scene.activeCamera!.layerMask = 0x0fffffff & ~WEAPON_LAYER
+    // Le groupe 2 se rend après la scène principale.
+    // On vide le depth buffer avant ce groupe pour que l'arme passe toujours devant.
+    scene.setRenderingAutoClearDepthStencil(WEAPON_GROUP, true)
 
     let cancelled = false
     SceneLoader.ImportMeshAsync('', WEAPON_URL, '', scene).then((result) => {
@@ -46,12 +44,16 @@ export const WeaponManager = () => {
         result.meshes.forEach((m) => m.dispose())
         return
       }
+      const camera = scene.getCameraByName('playerCamera')
+      if (!camera) {
+        result.meshes.forEach((m) => m.dispose())
+        return
+      }
       const root = result.meshes[0]
       result.meshes.forEach((m) => {
-        m.layerMask = WEAPON_LAYER
+        m.renderingGroupId = WEAPON_GROUP
       })
-      // Attach to weapon camera so it follows automatically
-      root.parent = weaponCamera
+      root.parent = camera
       root.position = WEAPON_OFFSET.clone()
       root.rotation = WEAPON_ROTATION.clone()
       meshRef.current = root
@@ -62,19 +64,20 @@ export const WeaponManager = () => {
       mouseDeltaRef.current.x += e.movementX
       mouseDeltaRef.current.y += e.movementY
     }
+
+    const recoilHandler = room.onMessage('recoil', (data: { pitch: number; yaw: number }) => {
+      targetRecoilRef.current = { pitch: data.pitch, yaw: data.yaw }
+      lastRecoilTimeRef.current = Date.now()
+    })
+
     document.addEventListener('mousemove', handleMouseMove)
 
     return () => {
       cancelled = true
+      recoilHandler()
       document.removeEventListener('mousemove', handleMouseMove)
       meshRef.current?.dispose()
       meshRef.current = null
-      weaponCamera.dispose()
-      weaponCameraRef.current = null
-      if (scene.activeCamera) {
-        scene.activeCamera.layerMask = 0x0fffffff
-        scene.activeCameras = [scene.activeCamera]
-      }
     }
   }, [scene])
 
@@ -82,9 +85,10 @@ export const WeaponManager = () => {
     const mesh = meshRef.current
     if (!mesh) return
 
-    const clamp = (v: number) => Math.max(-SWAY_MAX, Math.min(SWAY_MAX, v))
-    const targetX = clamp(mouseDeltaRef.current.x * SWAY_SENSITIVITY)
-    const targetY = clamp(mouseDeltaRef.current.y * SWAY_SENSITIVITY)
+    // Sway
+    const clamp = (v: number, max: number) => Math.max(-max, Math.min(max, v))
+    const targetX = clamp(mouseDeltaRef.current.x * SWAY_SENSITIVITY, SWAY_MAX)
+    const targetY = clamp(mouseDeltaRef.current.y * SWAY_SENSITIVITY, SWAY_MAX)
     mouseDeltaRef.current.x *= SWAY_DECAY
     mouseDeltaRef.current.y *= SWAY_DECAY
 
@@ -96,6 +100,27 @@ export const WeaponManager = () => {
     mesh.rotation.x = WEAPON_ROTATION.x - swayRef.current.y
     mesh.rotation.y = WEAPON_ROTATION.y
     mesh.rotation.z = WEAPON_ROTATION.z - swayRef.current.x * 0.3
+
+    // Recoil — appliqué en delta sur la caméra pour ne pas perturber la rotation souris
+    const camera = scene?.activeCamera
+    if (!camera) return
+
+    const recovering = Date.now() - lastRecoilTimeRef.current > RECOIL_RECOVERY_DELAY
+
+    if (recovering) {
+      targetRecoilRef.current.pitch += (0 - targetRecoilRef.current.pitch) * RECOIL_RECOVERY_LERP
+      targetRecoilRef.current.yaw += (0 - targetRecoilRef.current.yaw) * RECOIL_RECOVERY_LERP
+    }
+
+    const newPitch = appliedRecoilRef.current.pitch +
+      (targetRecoilRef.current.pitch - appliedRecoilRef.current.pitch) * RECOIL_APPLY_LERP
+    const newYaw = appliedRecoilRef.current.yaw +
+      (targetRecoilRef.current.yaw - appliedRecoilRef.current.yaw) * RECOIL_APPLY_LERP
+
+    camera.rotation.x -= (newPitch - appliedRecoilRef.current.pitch)
+    camera.rotation.y += (newYaw - appliedRecoilRef.current.yaw)
+
+    appliedRecoilRef.current = { pitch: newPitch, yaw: newYaw }
   })
 
   return null

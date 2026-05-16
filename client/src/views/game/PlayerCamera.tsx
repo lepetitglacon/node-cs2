@@ -36,7 +36,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
 
   const localPos = useRef({ x: player.x, y: player.y, z: player.z })
   const localVel = useRef({ x: 0, z: 0 })
-  const shootPending = useRef(false)
+  const isFiringRef = useRef(false)
 
   useEffect(() => {
     if (!scene) return
@@ -65,10 +65,13 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     canvas.addEventListener('click', requestLock)
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && document.pointerLockElement)
-        shootPending.current = true
+      if (e.button === 0 && document.pointerLockElement) isFiringRef.current = true
+    }
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 0) isFiringRef.current = false
     }
     document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('mouseup', handleMouseUp)
 
     const mat = new StandardMaterial('debug-local-mat', scene)
     mat.wireframe = true
@@ -85,6 +88,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     return () => {
       canvas.removeEventListener('click', requestLock)
       document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('mouseup', handleMouseUp)
       document.exitPointerLock()
       camera.detachControl()
       camera.dispose()
@@ -136,9 +140,8 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
       right: input.current.right,
       yaw: camera.rotation.y,
       pitch: camera.rotation.x,
-      shoot: shootPending.current,
+      shoot: isFiringRef.current,
     })
-    shootPending.current = false
   }, TICK_RATE)
 
   return null
