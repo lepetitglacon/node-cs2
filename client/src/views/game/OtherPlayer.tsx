@@ -5,6 +5,7 @@ import {
   MeshBuilder,
   Quaternion,
   Vector3,
+  TransformNode,
   StandardMaterial,
   Color3,
   type LinesMesh,
@@ -25,7 +26,14 @@ const LERP = 0.2
 const BODY_Y_OFFSET = 0.85
 const AIM_RAY_LENGTH = 50
 const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
+const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
+
+// --- Offset de l'arme (espace local du pivot = origine joueur) ---
+const WEAPON_HAND_OFFSET = new Vector3(-0.12, 1.48, -0.25)
+const WEAPON_HAND_ROTATION = new Vector3(0.25, Math.PI * 0.5 - 0.1, 0.2)
+const WEAPON_HAND_SCALE = new Vector3(0.47, 0.47, 0.47)
+// ----------------------------------------------------------------
 
 const ANIM_MAP: Record<string, string> = {
   idle: 'idle',
@@ -44,6 +52,8 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const isDebugRef = useRef(isDebug)
   isDebugRef.current = isDebug
   const meshRef = useRef<AbstractMesh | null>(null)
+  const weaponPivotRef = useRef<TransformNode | null>(null)
+  const weaponMeshRef = useRef<AbstractMesh | null>(null)
   const debugMeshRef = useRef<any | null>(null)
   const aimLineRef = useRef<LinesMesh | null>(null)
   const hpBarRef = useRef<Rectangle | null>(null)
@@ -89,8 +99,31 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     hpContainer.addControl(hpText)
     hpTextRef.current = hpText
 
+    // Pivot de l'arme : positionné à l'origine du joueur, tourne avec le quaternion complet
+    const weaponPivot = new TransformNode(`weapon-pivot-${pid}`, scene)
+    weaponPivot.position.set(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0)
+    weaponPivot.rotationQuaternion = new Quaternion(
+      p?.qx ?? 0,
+      p?.qy ?? 0,
+      p?.qz ?? 0,
+      p?.qw ?? 1
+    ).multiply(MODEL_OFFSET)
+    weaponPivotRef.current = weaponPivot
+
+    SceneLoader.ImportMeshAsync('', WEAPON_URL, '', scene).then((result) => {
+      if (cancelled) {
+        result.meshes.forEach((m) => m.dispose())
+        return
+      }
+      const weaponRoot = result.meshes[0]
+      weaponRoot.parent = weaponPivot
+      weaponRoot.position = WEAPON_HAND_OFFSET.clone()
+      weaponRoot.rotation = WEAPON_HAND_ROTATION.clone()
+      weaponRoot.scaling = WEAPON_HAND_SCALE.clone()
+      weaponMeshRef.current = weaponRoot
+    })
+
     SceneLoader.ImportMeshAsync('', MODEL_URL, '', scene).then((result) => {
-      console.log(result.animationGroups)
       if (cancelled) {
         result.meshes.forEach((m) => m.dispose())
         result.animationGroups.forEach((ag) => ag.dispose())
@@ -159,6 +192,10 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       animGroupsRef.current.forEach((ag) => ag.dispose())
       meshRef.current?.dispose()
       meshRef.current = null
+      weaponMeshRef.current?.dispose()
+      weaponMeshRef.current = null
+      weaponPivotRef.current?.dispose()
+      weaponPivotRef.current = null
       debugMesh.dispose()
       aimLine.dispose()
       gui.dispose()
@@ -198,6 +235,23 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
         target,
         LERP,
         mesh.rotationQuaternion
+      )
+    }
+
+    // Pivot de l'arme : suit la position du joueur + rotation complète (pitch + yaw)
+    const pivot = weaponPivotRef.current
+    if (pivot?.rotationQuaternion) {
+      pivot.position.x += (p.x - pivot.position.x) * LERP
+      pivot.position.y += (p.y - pivot.position.y) * LERP
+      pivot.position.z += (p.z - pivot.position.z) * LERP
+      const weaponTarget = new Quaternion(p.qx, p.qy, p.qz, p.qw).multiply(
+        MODEL_OFFSET
+      )
+      Quaternion.SlerpToRef(
+        pivot.rotationQuaternion,
+        weaponTarget,
+        LERP,
+        pivot.rotationQuaternion
       )
     }
 
