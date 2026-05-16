@@ -56,9 +56,39 @@ export class MyRoom extends Room {
       const player = this.state.players.get(sessionId);
       if (!body || !player) return;
 
+      // Check if dead first
+      if (player.health <= 0) {
+        if (player.moveState !== 'dying') {
+          player.moveState = 'dying';
+        }
+        return;
+      }
+
       const vel = this.playerVelocities.get(sessionId)!;
       applyMovement(vel, input, input.yaw);
       this.playerVelocities.set(sessionId, vel);
+
+      // Update moveState based on movement direction
+      let newMoveState = 'idle';
+      if (input.forward || input.back || input.left || input.right) {
+        if (input.forward && !input.back) {
+          newMoveState = 'walk_front';
+        } else if (input.back && !input.forward) {
+          newMoveState = 'walk_back';
+        } else if (input.left && !input.right) {
+          newMoveState = 'walk_left';
+        } else if (input.right && !input.left) {
+          newMoveState = 'walk_right';
+        } else if (input.forward && (input.left || input.right)) {
+          newMoveState = input.left ? 'walk_left' : 'walk_right';
+        } else if (input.back && (input.left || input.right)) {
+          newMoveState = input.left ? 'walk_left' : 'walk_right';
+        }
+      }
+
+      if (player.moveState !== newMoveState) {
+        player.moveState = newMoveState;
+      }
 
       // Conserver la vélocité Y de Rapier (gravité) et écraser X/Z
       const linvel = body.linvel();
@@ -103,7 +133,9 @@ export class MyRoom extends Room {
     // Sync positions Rapier → Schema
     this.playerBodies.forEach((body, sessionId) => {
       const player = this.state.players.get(sessionId);
-      if (!player) return;
+      const vel = this.playerVelocities.get(sessionId);
+      if (!player || !vel) return;
+
       const pos = body.translation();
       player.x = pos.x;
       player.y = pos.y - BODY_Y_OFFSET;

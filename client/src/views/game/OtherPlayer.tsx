@@ -27,6 +27,15 @@ const AIM_RAY_LENGTH = 50
 const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
+const ANIM_MAP: Record<string, string> = {
+  idle: 'idle',
+  walk_front: 'walk_front',
+  walk_back: 'walk_back',
+  walk_left: 'walk_left',
+  walk_right: 'walk_right',
+  dying: 'dying',
+}
+
 export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const scene = useScene()
   const { room } = useRoom()
@@ -40,6 +49,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const hpBarRef = useRef<Rectangle | null>(null)
   const hpTextRef = useRef<TextBlock | null>(null)
   const lastHealthRef = useRef(-1)
+  const lastMoveStateRef = useRef<string | null>(null)
   const animGroupsRef = useRef<AnimationGroup[]>([])
 
   useEffect(() => {
@@ -80,6 +90,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     hpTextRef.current = hpText
 
     SceneLoader.ImportMeshAsync('', MODEL_URL, '', scene).then((result) => {
+      console.log(result.animationGroups)
       if (cancelled) {
         result.meshes.forEach((m) => m.dispose())
         result.animationGroups.forEach((ag) => ag.dispose())
@@ -99,8 +110,24 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
 
       animGroupsRef.current = result.animationGroups
       result.animationGroups.forEach((ag) => ag.stop())
-      const idle = result.animationGroups.find((ag) => ag.name === 'idle.001')
-      idle?.start(true)
+
+      const playAnimation = (moveState: string) => {
+        const animName = ANIM_MAP[moveState]
+        if (!animName) return
+
+        const shouldLoop = moveState !== 'dying'
+        result.animationGroups.forEach((ag) => {
+          if (ag.name.toLowerCase().includes(animName)) {
+            ag.start(shouldLoop)
+          } else {
+            ag.stop()
+          }
+        })
+      }
+
+      const playerMoveState = p?.moveState ?? 'IDLE'
+      lastMoveStateRef.current = playerMoveState
+      playAnimation(playerMoveState)
 
       // Lier la barre de HP au mesh une fois chargé
       hpContainer.linkWithMesh(rootMesh)
@@ -142,6 +169,23 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     const mesh = meshRef.current
     const p = roomRef.current?.state?.players?.get(pid)
     if (!mesh || !p) return
+
+    // Handle moveState changes
+    if (p.moveState && p.moveState !== lastMoveStateRef.current) {
+      lastMoveStateRef.current = p.moveState
+
+      const animName = ANIM_MAP[p.moveState]
+      if (animName) {
+        const shouldLoop = p.moveState !== 'dying'
+        animGroupsRef.current.forEach((ag) => {
+          if (ag.name.toLowerCase().includes(animName)) {
+            if (!ag.isPlaying) ag.start(shouldLoop)
+          } else {
+            ag.stop()
+          }
+        })
+      }
+    }
 
     mesh.position.x += (p.x - mesh.position.x) * LERP
     mesh.position.y += (p.y - mesh.position.y) * LERP
