@@ -7,11 +7,11 @@ import {
   Vector3,
   StandardMaterial,
   Color3,
-  type Mesh,
   type LinesMesh,
   type AbstractMesh,
   type AnimationGroup,
 } from '@babylonjs/core'
+import { AdvancedDynamicTexture, Rectangle, TextBlock } from '@babylonjs/gui'
 import '@babylonjs/loaders/glTF'
 import { useRoom } from './roomContext.ts'
 
@@ -35,8 +35,11 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const isDebugRef = useRef(isDebug)
   isDebugRef.current = isDebug
   const meshRef = useRef<AbstractMesh | null>(null)
-  const debugMeshRef = useRef<Mesh | null>(null)
+  const debugMeshRef = useRef<any | null>(null)
   const aimLineRef = useRef<LinesMesh | null>(null)
+  const hpBarRef = useRef<Rectangle | null>(null)
+  const hpTextRef = useRef<TextBlock | null>(null)
+  const lastHealthRef = useRef(-1)
   const animGroupsRef = useRef<AnimationGroup[]>([])
 
   useEffect(() => {
@@ -45,6 +48,36 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     const p = roomRef.current?.state?.players?.get(pid)
     let rootMesh: AbstractMesh | null = null
     let cancelled = false
+
+    const gui = AdvancedDynamicTexture.CreateFullscreenUI(
+      `hp-ui-${pid}`,
+      true,
+      scene
+    )
+
+    const hpContainer = new Rectangle(`hp-bg-${pid}`)
+    hpContainer.width = '120px'
+    hpContainer.height = '24px'
+    hpContainer.background = '#000000'
+    hpContainer.thickness = 1
+    hpContainer.borderColor = '#ffffff'
+    gui.addControl(hpContainer)
+    hpContainer.linkOffsetY = 50
+
+    const hpBar = new Rectangle(`hp-bar-${pid}`)
+    hpBar.width = '100%'
+    hpBar.height = '100%'
+    hpBar.background = '#00ff00'
+    hpBar.thickness = 0
+    hpContainer.addControl(hpBar)
+    hpBarRef.current = hpBar
+
+    const hpText = new TextBlock(`hp-text-${pid}`, '100')
+    hpText.fontSize = 12
+    hpText.color = 'white'
+    hpText.thickness = 0
+    hpContainer.addControl(hpText)
+    hpTextRef.current = hpText
 
     SceneLoader.ImportMeshAsync('', MODEL_URL, '', scene).then((result) => {
       if (cancelled) {
@@ -68,6 +101,9 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       result.animationGroups.forEach((ag) => ag.stop())
       const idle = result.animationGroups.find((ag) => ag.name === 'idle.001')
       idle?.start(true)
+
+      // Lier la barre de HP au mesh une fois chargé
+      hpContainer.linkWithMesh(rootMesh)
     })
 
     const mat = new StandardMaterial(`debug-${pid}-mat`, scene)
@@ -98,6 +134,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       meshRef.current = null
       debugMesh.dispose()
       aimLine.dispose()
+      gui.dispose()
     }
   }, [scene])
 
@@ -132,7 +169,6 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     if (aimLine) {
       aimLine.isVisible = isDebugRef.current
       if (isDebugRef.current) {
-        // Vecteur avant depuis le quaternion (coordonnées left-handed BabylonJS, forward = +Z)
         const { qx, qy, qz, qw } = p
         const fwdX = 2 * (qx * qz + qy * qw)
         const fwdY = 2 * (qy * qz - qx * qw)
@@ -143,7 +179,22 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
           p.headY + fwdY * AIM_RAY_LENGTH,
           p.z + fwdZ * AIM_RAY_LENGTH
         )
-        MeshBuilder.CreateLines(`aim-${pid}`, { points: [origin, end], instance: aimLine })
+        MeshBuilder.CreateLines(`aim-${pid}`, {
+          points: [origin, end],
+          instance: aimLine,
+        })
+      }
+    }
+
+    const hpBar = hpBarRef.current
+    const hpText = hpTextRef.current
+    if (hpBar && hpText && p.health !== undefined) {
+      if (p.health !== lastHealthRef.current) {
+        lastHealthRef.current = p.health
+        const healthPercent = Math.max(0, Math.min(100, p.health)) / 100
+        hpBar.width = `${healthPercent * 100}%`
+        hpBar.background = '#00ff00'
+        hpText.text = `${Math.round(p.health)}`
       }
     }
   })
