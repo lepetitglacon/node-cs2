@@ -36,8 +36,8 @@ const FOOTSTEP_SOUND_URLS = [
   'http://localhost:2567/assets/sound/footstep_2.wav',
   'http://localhost:2567/assets/sound/footstep_3.wav',
 ]
-const FOOTSTEP_WALK_INTERVAL_MS = 400
-const FOOTSTEP_SPRINT_INTERVAL_MS = 270
+const FOOTSTEP_WALK_INTERVAL_MS = 800
+const FOOTSTEP_SPRINT_INTERVAL_MS = 400
 const FOOTSTEP_MAX_DISTANCE = 25
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
