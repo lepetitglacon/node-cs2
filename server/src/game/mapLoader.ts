@@ -108,7 +108,12 @@ export interface MapData {
 
 export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapData> {
   const io = new NodeIO();
-  const glbPath = path.resolve(__dirname, "../../public/assets/map", `${mapId}.glb`);
+  
+  // In development (tsx), __dirname is server/src/game
+  // In production (build), __dirname is server/build/game
+  // Public assets are always at server/public/assets
+  const glbPath = path.resolve(__dirname, "../../../public/assets/map", `${mapId}.glb`);
+  
   const document = await io.read(glbPath);
   const geometries: MeshGeometry[] = [];
   const spawns: SpawnPoints = { team1: [], team2: [] };
