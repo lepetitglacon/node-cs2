@@ -2,7 +2,8 @@
 FROM node:20-alpine AS client-build
 WORKDIR /app/client
 COPY client/package*.json ./
-RUN npm install
+# Use --legacy-peer-deps to handle React 19 compatibility issues with some packages
+RUN npm install --legacy-peer-deps
 COPY client/ ./
 RUN npm run build
 
