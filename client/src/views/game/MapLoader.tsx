@@ -7,7 +7,10 @@ interface Props {
   mapId: string
 }
 
-const SERVER_URL = 'http://localhost:2567'
+const isProd = import.meta.env.PROD
+const SERVER_URL = isProd 
+  ? `${window.location.protocol}//${window.location.host}` 
+  : 'http://localhost:2567'
 
 export const MapLoader = ({ mapId }: Props) => {
   const scene = useScene()

@@ -50,6 +50,19 @@ const server = defineServer({
         app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
         console.log(`serving statics ${path.join(__dirname, "../public/assets")}`)
 
+        // Serve client's dist folder in production
+        const clientDist = path.join(__dirname, "../../client/dist");
+        if (process.env.NODE_ENV === "production") {
+            app.use(express.static(clientDist));
+            app.get("*", (req, res, next) => {
+                // Do not intercept Colyseus or API routes
+                if (req.path.startsWith("/api") || req.path.startsWith("/matchmake")) {
+                    return next();
+                }
+                res.sendFile(path.join(clientDist, "index.html"));
+            });
+        }
+
         app.get("/hi", (req, res) => {
             res.send("It's time to kick ass and chew bubblegum!");
         });
