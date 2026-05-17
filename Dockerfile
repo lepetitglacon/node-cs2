@@ -18,13 +18,7 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app/server
 
-# Copy everything from server build
 COPY --from=server-build /app/server ./
-
-# Explicitly copy public folder again to be 100% sure
-COPY server/public ./public
-
-# Copy client build
 COPY --from=client-build /app/client/dist ../client/dist
 
 ENV NODE_ENV=production

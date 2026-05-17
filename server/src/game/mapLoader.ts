@@ -1,6 +1,7 @@
 import { NodeIO } from "@gltf-transform/core";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
 import RAPIER from "@dimforge/rapier3d-compat";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -115,6 +116,18 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
   console.log(`[MAP_LOADER] Target path: ${glbPath}`);
   console.log(`[MAP_LOADER] CWD: ${process.cwd()}`);
   
+  try {
+    const dir = path.dirname(glbPath);
+    if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      console.log(`[MAP_LOADER] Files in ${dir}: ${files.join(", ")}`);
+    } else {
+      console.log(`[MAP_LOADER] Directory NOT FOUND: ${dir}`);
+    }
+  } catch (e) {
+    console.log(`[MAP_LOADER] Debug error: ${e.message}`);
+  }
+
   const document = await io.read(glbPath);
   const geometries: MeshGeometry[] = [];
   const spawns: SpawnPoints = { team1: [], team2: [] };
