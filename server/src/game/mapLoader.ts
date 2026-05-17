@@ -7,12 +7,24 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export type ShapeType = "trimesh" | "cuboid" | "cylinder" | "ball" | "none";
 
-// Mapping nom de mesh → type de shape Rapier.
-// "none" = mesh purement visuelle, aucun collider créé.
+// Mapping nom d'objet Blender → type de shape Rapier.
+// "none" = objet purement visuel, aucun collider créé.
 export const MESH_SHAPE_MAP: Record<string, ShapeType> = {
   Plane: "trimesh",
+  Weird: "trimesh",
   Cube: "cuboid",
 };
+
+// Convention de nommage Blender pour les spawn points :
+// objet (Empty ou mesh) dont le nom commence par "spawn_t1" ou "spawn_t2"
+// (insensible à la casse). Exemples : Spawn_t1, Spawn_t1.001, spawn_t2_a.
+function matchesSpawnPrefix(nodeName: string, team: 't1' | 't2'): boolean {
+  const lower = nodeName.toLowerCase();
+  const prefix = `spawn_${team}`;
+  return lower === prefix
+    || lower.startsWith(`${prefix}.`)
+    || lower.startsWith(`${prefix}_`);
+}
 
 function transformPositions(raw: Float32Array, mat: number[]): Float32Array {
   const out = new Float32Array(raw.length);
@@ -78,20 +90,49 @@ export interface MeshGeometry {
   indices: number[];
 }
 
-export async function loadMapColliders(world: RAPIER.World, mapId: string): Promise<MeshGeometry[]> {
+export interface SpawnPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SpawnPoints {
+  team1: SpawnPoint[];
+  team2: SpawnPoint[];
+}
+
+export interface MapData {
+  geometries: MeshGeometry[];
+  spawns: SpawnPoints;
+}
+
+export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapData> {
   const io = new NodeIO();
   const glbPath = path.resolve(__dirname, "../../public/assets/map", `${mapId}.glb`);
   const document = await io.read(glbPath);
   const geometries: MeshGeometry[] = [];
+  const spawns: SpawnPoints = { team1: [], team2: [] };
 
   for (const node of document.getRoot().listNodes()) {
+    const mat = node.getMatrix();
+    const nodeName = node.getName();
+
+    // Spawn points : on extrait la translation du node, peu importe qu'il ait un mesh ou pas
+    // (les Empties Blender deviennent des nodes sans mesh).
+    if (matchesSpawnPrefix(nodeName, 't1')) {
+      spawns.team1.push({ x: mat[12], y: mat[13], z: -mat[14] });
+      continue;
+    }
+    if (matchesSpawnPrefix(nodeName, 't2')) {
+      spawns.team2.push({ x: mat[12], y: mat[13], z: -mat[14] });
+      continue;
+    }
+
     const mesh = node.getMesh();
     if (!mesh) continue;
 
-    const shapeType = MESH_SHAPE_MAP[mesh.getName().split('.')[0]] ?? "none";
+    const shapeType = MESH_SHAPE_MAP[nodeName.split('.')[0]] ?? "none";
     if (shapeType === "none") continue;
-
-    const mat = node.getMatrix();
 
     for (const prim of mesh.listPrimitives()) {
       const posAttr = prim.getAttribute("POSITION");
@@ -121,5 +162,5 @@ export async function loadMapColliders(world: RAPIER.World, mapId: string): Prom
     }
   }
 
-  return geometries;
+  return { geometries, spawns };
 }

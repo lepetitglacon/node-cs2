@@ -1,10 +1,10 @@
 import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player } from "./schema/MyRoomState.js";
 import { applyMovement } from "../game/movement.js";
-import { loadMapColliders, type MeshGeometry } from "../game/mapLoader.js";
+import { loadMap, type MeshGeometry, type SpawnPoints } from "../game/mapLoader.js";
+import { createStrategy, type MatchStrategy } from "../game/matchStrategy.js";
 import RAPIER from "@dimforge/rapier3d-compat";
 
-const FLOOR_SIZE = 10;
 const CAPSULE_HALF_HEIGHT = 0.6;
 const CAPSULE_RADIUS = 0.25;
 const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
@@ -13,8 +13,6 @@ const MAX_RAY_DIST = 50;
 const SHOOT_COOLDOWN = 100;
 const BULLET_DAMAGE = 33;
 const BURST_RESET_MS = 450;
-const MAGAZINE_SIZE = 30;
-const MAX_TOTAL_AMMO = 90;
 const RELOAD_TIME_MS = 2500;
 
 // Offsets cumulatifs du pattern AK-47 (pitch = recul vertical, yaw = dérive horizontale)
@@ -63,11 +61,12 @@ function resolveDir(input: any): 'front' | 'back' | 'left' | 'right' | null {
 }
 
 export class MyRoom extends Room {
-  maxClients = 4;
   state = new MyRoomState();
+  strategy!: MatchStrategy;
 
   world!: RAPIER.World;
   mapGeometries: MeshGeometry[] = [];
+  spawns!: SpawnPoints;
   playerBodies = new Map<string, RAPIER.RigidBody>();
   playerVelocities = new Map<string, { x: number; z: number }>();
   playerClients = new Map<string, Client>();
@@ -83,9 +82,14 @@ export class MyRoom extends Room {
   async onCreate(options: any) {
     await RAPIER.init();
 
+    this.strategy = createStrategy(this.state.mode);
+    this.maxClients = this.strategy.maxClients;
+
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
-    this.mapGeometries = await loadMapColliders(this.world, this.state.mapId);
+    const map = await loadMap(this.world, this.state.mapId);
+    this.mapGeometries = map.geometries;
+    this.spawns = map.spawns;
 
     this.onMessage("requestDebugMesh", (client: Client) => {
       client.send("debugMapMesh", this.mapGeometries);
@@ -103,19 +107,14 @@ export class MyRoom extends Room {
     this.onMessage("reload", (client: Client) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.health <= 0) return;
-      if (player.isReloading || player.totalAmmo <= 0 || player.bullets >= MAGAZINE_SIZE) return;
+      if (player.isReloading || player.totalAmmo <= 0 || player.bullets >= this.strategy.magazineSize) return;
       player.isReloading = true;
       this.playerReloadStart.set(client.sessionId, Date.now());
     });
     this.onMessage("respawn", (client: Client) => {
       const player = this.state.players.get(client.sessionId);
-      if (!player || player.state === 'alive') return;
-      player.state = 'alive';
-      player.health = 100;
-      player.bullets = MAGAZINE_SIZE;
-      player.totalAmmo = MAX_TOTAL_AMMO;
-      player.isReloading = false;
-      this.playerReloadStart.set(client.sessionId, 0);
+      if (!player || player.state !== 'dead') return;
+      this.respawnPlayer(client.sessionId);
     });
 
     this.setSimulationInterval((dt) => this.update(dt), 1000 / 60);
@@ -124,13 +123,22 @@ export class MyRoom extends Room {
   update(_dt: number) {
     const now = Date.now();
 
+    // Auto-respawn après respawnDelayMs
+    if (this.strategy.respawnDelayMs !== null) {
+      this.state.players.forEach((player, sessionId) => {
+        if (player.state === 'dead' && player.respawnAt > 0 && now >= player.respawnAt) {
+          this.respawnPlayer(sessionId);
+        }
+      });
+    }
+
     // Complétion du rechargement
     this.playerReloadStart.forEach((startTime, sessionId) => {
       if (startTime === 0) return;
       if (now - startTime < RELOAD_TIME_MS) return;
       const player = this.state.players.get(sessionId);
       if (!player) return;
-      const needed = MAGAZINE_SIZE - player.bullets;
+      const needed = this.strategy.magazineSize - player.bullets;
       const available = Math.min(needed, player.totalAmmo);
       player.bullets += available;
       player.totalAmmo -= available;
@@ -214,8 +222,6 @@ export class MyRoom extends Room {
       player.y = pos.y - BODY_Y_OFFSET;
       player.z = pos.z;
       player.headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
-
-      if (player.health <= 0) player.state = 'dead';
     });
   }
 
@@ -239,7 +245,12 @@ export class MyRoom extends Room {
       const hitOwnerId = this.colliderOwners.get(hit.collider.handle);
       if (hitOwnerId) {
         const target = this.state.players.get(hitOwnerId);
-        if (target) target.health = Math.max(0, target.health - BULLET_DAMAGE);
+        if (target && target.health > 0 && this.strategy.canDamage(player, target)) {
+          target.health = Math.max(0, target.health - BULLET_DAMAGE);
+          if (target.health === 0) {
+            this.killPlayer(hitOwnerId, target, player, now);
+          }
+        }
       }
     }
 
@@ -251,6 +262,38 @@ export class MyRoom extends Room {
     this.broadcast('shotFired', { sessionId, x: pos.x, y: headY, z: pos.z }, { except: shooterClient });
   }
 
+  private killPlayer(victimId: string, victim: Player, killer: Player | null, now: number) {
+    victim.state = 'dead';
+    victim.isReloading = false;
+    this.playerReloadStart.set(victimId, 0);
+    this.playerIsShooting.set(victimId, false);
+    this.playerShotPending.set(victimId, null);
+    this.strategy.onKill(killer, victim);
+    if (this.strategy.respawnDelayMs !== null) {
+      victim.respawnAt = now + this.strategy.respawnDelayMs;
+    }
+  }
+
+  private respawnPlayer(sessionId: string) {
+    const player = this.state.players.get(sessionId);
+    const body = this.playerBodies.get(sessionId);
+    if (!player || !body) return;
+
+    const spawn = this.strategy.pickSpawn(player.team, this.spawns);
+    body.setTranslation({ x: spawn.x, y: spawn.y + BODY_Y_OFFSET + 0.5, z: spawn.z }, true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, true);
+
+    player.state = 'alive';
+    player.health = this.strategy.startingHealth;
+    player.bullets = this.strategy.magazineSize;
+    player.totalAmmo = this.strategy.maxTotalAmmo;
+    player.isReloading = false;
+    player.respawnAt = 0;
+    player.moveState = 'idle';
+    this.playerReloadStart.set(sessionId, 0);
+    this.playerVelocities.set(sessionId, { x: 0, z: 0 });
+  }
+
   onAuth(client: Client, options: any, context: any) {
     return true;
   }
@@ -258,11 +301,11 @@ export class MyRoom extends Room {
   onJoin(client: Client, options: any) {
     console.log(client.sessionId, "joined!");
 
-    const spawnX = -(FLOOR_SIZE / 2) + Math.random() * FLOOR_SIZE;
-    const spawnZ = -(FLOOR_SIZE / 2) + Math.random() * FLOOR_SIZE;
+    const team = this.strategy.assignTeam(this.state);
+    const spawn = this.strategy.pickSpawn(team, this.spawns);
 
     const bodyDesc = RAPIER.RigidBodyDesc.dynamic()
-      .setTranslation(spawnX, BODY_Y_OFFSET + 0.5, spawnZ)
+      .setTranslation(spawn.x, spawn.y + BODY_Y_OFFSET + 0.5, spawn.z)
       .lockRotations();
     const body = this.world.createRigidBody(bodyDesc);
     const collider = this.world.createCollider(
@@ -273,9 +316,13 @@ export class MyRoom extends Room {
     this.playerColliderHandles.set(client.sessionId, collider.handle);
 
     const player = new Player();
-    player.x = spawnX;
-    player.y = 0;
-    player.z = spawnZ;
+    player.team = team;
+    player.x = spawn.x;
+    player.y = spawn.y;
+    player.z = spawn.z;
+    player.health = this.strategy.startingHealth;
+    player.bullets = this.strategy.magazineSize;
+    player.totalAmmo = this.strategy.maxTotalAmmo;
 
     this.playerBodies.set(client.sessionId, body);
     this.playerVelocities.set(client.sessionId, { x: 0, z: 0 });
