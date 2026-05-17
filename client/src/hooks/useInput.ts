@@ -6,9 +6,12 @@ export interface InputState {
   left: boolean
   right: boolean
   shoot: boolean
+  sprint: boolean
+  crouch: boolean
+  jump: boolean
 }
 
-const INITIAL: InputState = { forward: false, back: false, left: false, right: false, shoot: false }
+const INITIAL: InputState = { forward: false, back: false, left: false, right: false, shoot: false, sprint: false, crouch: false, jump: false }
 
 export const useInput = () => {
   const ref = useRef<InputState>({ ...INITIAL })
@@ -22,6 +25,9 @@ export const useInput = () => {
       else if (e.key === 's' || e.key === 'S') ref.current.back = true
       else if (e.key === 'q' || e.key === 'Q') ref.current.left = true
       else if (e.key === 'd' || e.key === 'D') ref.current.right = true
+      else if (e.key === 'Shift' && e.location === 1) ref.current.sprint = true
+      else if (e.key === 'Control' && e.location === 1) ref.current.crouch = true
+      else if (e.key === ' ') ref.current.jump = true
       else return
       sync()
     }
@@ -31,6 +37,9 @@ export const useInput = () => {
       else if (e.key === 's' || e.key === 'S') ref.current.back = false
       else if (e.key === 'q' || e.key === 'Q') ref.current.left = false
       else if (e.key === 'd' || e.key === 'D') ref.current.right = false
+      else if (e.key === 'Shift' && e.location === 1) ref.current.sprint = false
+      else if (e.key === 'Control' && e.location === 1) ref.current.crouch = false
+      else if (e.key === ' ') ref.current.jump = false
       else return
       sync()
     }

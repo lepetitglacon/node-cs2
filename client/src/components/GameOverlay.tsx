@@ -10,6 +10,9 @@ const KEY_LABELS: { key: keyof ReturnType<typeof useGame>['inputState']; label: 
   { key: 'left',    label: 'Q' },
   { key: 'back',    label: 'S' },
   { key: 'right',   label: 'D' },
+  { key: 'sprint',  label: 'SHIFT' },
+  { key: 'crouch',  label: 'CTRL' },
+  { key: 'jump',    label: 'SPACE' },
   { key: 'shoot',   label: 'FIRE' },
 ]
 

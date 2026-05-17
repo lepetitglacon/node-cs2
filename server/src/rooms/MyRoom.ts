@@ -51,6 +51,17 @@ const AK47_PATTERN: Array<{ pitch: number; yaw: number }> = [
   { pitch: 0.173, yaw:  0.000 },
 ];
 
+function resolveDir(input: any): 'front' | 'back' | 'left' | 'right' | null {
+  if (!input.forward && !input.back && !input.left && !input.right) return null;
+  if (input.forward && !input.back) return 'front';
+  if (input.back && !input.forward) return 'back';
+  if (input.left && !input.right) return 'left';
+  if (input.right && !input.left) return 'right';
+  if (input.forward) return input.left ? 'left' : 'right';
+  if (input.back) return input.left ? 'left' : 'right';
+  return 'front';
+}
+
 export class MyRoom extends Room {
   maxClients = 4;
   state = new MyRoomState();
@@ -141,27 +152,27 @@ export class MyRoom extends Room {
       applyMovement(vel, input, input.yaw);
       this.playerVelocities.set(sessionId, vel);
 
+      const dir = resolveDir(input);
       let newMoveState: import("./schema/MyRoomState.js").MoveState = 'idle';
-      if (input.forward || input.back || input.left || input.right) {
-        if (input.forward && !input.back) {
-          newMoveState = 'walk_front';
-        } else if (input.back && !input.forward) {
-          newMoveState = 'walk_back';
-        } else if (input.left && !input.right) {
-          newMoveState = 'walk_left';
-        } else if (input.right && !input.left) {
-          newMoveState = 'walk_right';
-        } else if (input.forward && (input.left || input.right)) {
-          newMoveState = input.left ? 'walk_left' : 'walk_right';
-        } else if (input.back && (input.left || input.right)) {
-          newMoveState = input.left ? 'walk_left' : 'walk_right';
-        }
+      if (input.jump) {
+        newMoveState = 'jump';
+      } else if (input.sprint && dir) {
+        newMoveState = `sprint_${dir}` as import("./schema/MyRoomState.js").MoveState;
+      } else if (input.crouch) {
+        newMoveState = dir ? `crouch_${dir}` as import("./schema/MyRoomState.js").MoveState : 'crouch_idle';
+      } else if (dir) {
+        newMoveState = `walk_${dir}` as import("./schema/MyRoomState.js").MoveState;
       }
 
       if (player.moveState !== newMoveState) player.moveState = newMoveState;
 
       const linvel = body.linvel();
-      body.setLinvel({ x: vel.x * 64, y: linvel.y, z: vel.z * 64 }, true);
+
+      if (input.jump && Math.abs(linvel.y) < 0.5) {
+        body.setLinvel({ x: vel.x * 64, y: 6, z: vel.z * 64 }, true);
+      } else {
+        body.setLinvel({ x: vel.x * 64, y: linvel.y, z: vel.z * 64 }, true);
+      }
 
       const { yaw, pitch } = input;
       const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2);

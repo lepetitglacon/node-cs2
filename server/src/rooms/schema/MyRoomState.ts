@@ -1,7 +1,13 @@
 import {MapSchema, Schema, type } from "@colyseus/schema";
 
 export type PlayerState = 'alive' | 'dead'
-export type MoveState = 'idle' | 'walk_front' | 'walk_back' | 'walk_left' | 'walk_right' | 'dying'
+export type MoveState =
+  | 'idle'
+  | 'walk_front' | 'walk_back' | 'walk_left' | 'walk_right'
+  | 'sprint_front' | 'sprint_back' | 'sprint_left' | 'sprint_right'
+  | 'crouch_idle' | 'crouch_front' | 'crouch_back' | 'crouch_left' | 'crouch_right'
+  | 'jump'
+  | 'dying'
 
 export class Player extends Schema {
   @type("string") state: PlayerState = 'alive';
