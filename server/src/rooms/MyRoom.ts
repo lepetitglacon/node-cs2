@@ -1,6 +1,7 @@
 import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player } from "./schema/MyRoomState.js";
 import { applyMovement } from "../game/movement.js";
+import { loadMapColliders, type MeshGeometry } from "../game/mapLoader.js";
 import RAPIER from "@dimforge/rapier3d-compat";
 
 const FLOOR_SIZE = 10;
@@ -11,7 +12,10 @@ const EYE_HEIGHT = 1.60;
 const MAX_RAY_DIST = 50;
 const SHOOT_COOLDOWN = 100;
 const BULLET_DAMAGE = 10;
-const BURST_RESET_MS = 800;
+const BURST_RESET_MS = 450;
+const MAGAZINE_SIZE = 30;
+const MAX_TOTAL_AMMO = 90;
+const RELOAD_TIME_MS = 2500;
 
 // Offsets cumulatifs du pattern AK-47 (pitch = recul vertical, yaw = dérive horizontale)
 const AK47_PATTERN: Array<{ pitch: number; yaw: number }> = [
@@ -52,6 +56,7 @@ export class MyRoom extends Room {
   state = new MyRoomState();
 
   world!: RAPIER.World;
+  mapGeometries: MeshGeometry[] = [];
   playerBodies = new Map<string, RAPIER.RigidBody>();
   playerVelocities = new Map<string, { x: number; z: number }>();
   playerClients = new Map<string, Client>();
@@ -60,26 +65,37 @@ export class MyRoom extends Room {
   playerColliderHandles = new Map<string, number>();
   playerLastShot = new Map<string, number>();
   playerBurstIndex = new Map<string, number>();
+  playerReloadStart = new Map<string, number>();
 
   async onCreate(options: any) {
     await RAPIER.init();
 
     this.world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
 
-    const groundBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    this.world.createCollider(
-      RAPIER.ColliderDesc.cuboid(FLOOR_SIZE, 0.05, FLOOR_SIZE),
-      groundBody,
-    );
+    this.mapGeometries = await loadMapColliders(this.world, this.state.mapId);
 
+    this.onMessage("requestDebugMesh", (client: Client) => {
+      client.send("debugMapMesh", this.mapGeometries);
+    });
     this.onMessage("playerInput", (client: Client, message: any) => {
       this.pendingInputs.set(client.sessionId, message);
+    });
+    this.onMessage("reload", (client: Client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player || player.health <= 0) return;
+      if (player.isReloading || player.totalAmmo <= 0 || player.bullets >= MAGAZINE_SIZE) return;
+      player.isReloading = true;
+      this.playerReloadStart.set(client.sessionId, Date.now());
     });
     this.onMessage("respawn", (client: Client) => {
       const player = this.state.players.get(client.sessionId);
       if (!player || player.state === 'alive') return;
       player.state = 'alive';
       player.health = 100;
+      player.bullets = MAGAZINE_SIZE;
+      player.totalAmmo = MAX_TOTAL_AMMO;
+      player.isReloading = false;
+      this.playerReloadStart.set(client.sessionId, 0);
     });
 
     this.setSimulationInterval((dt) => this.update(dt), 1000 / 60);
@@ -87,6 +103,20 @@ export class MyRoom extends Room {
 
   update(_dt: number) {
     const now = Date.now();
+
+    // Complétion du rechargement
+    this.playerReloadStart.forEach((startTime, sessionId) => {
+      if (startTime === 0) return;
+      if (now - startTime < RELOAD_TIME_MS) return;
+      const player = this.state.players.get(sessionId);
+      if (!player) return;
+      const needed = MAGAZINE_SIZE - player.bullets;
+      const available = Math.min(needed, player.totalAmmo);
+      player.bullets += available;
+      player.totalAmmo -= available;
+      player.isReloading = false;
+      this.playerReloadStart.set(sessionId, 0);
+    });
 
     // Réinitialise le burst si le joueur n'a pas tiré depuis BURST_RESET_MS
     this.playerBurstIndex.forEach((index, sessionId) => {
@@ -111,7 +141,7 @@ export class MyRoom extends Room {
       applyMovement(vel, input, input.yaw);
       this.playerVelocities.set(sessionId, vel);
 
-      let newMoveState = 'idle';
+      let newMoveState: import("./schema/MyRoomState.js").MoveState = 'idle';
       if (input.forward || input.back || input.left || input.right) {
         if (input.forward && !input.back) {
           newMoveState = 'walk_front';
@@ -141,10 +171,18 @@ export class MyRoom extends Room {
       player.qz = -sy * sp;
       player.qw = cy * cp;
 
-      if (input.shoot) {
+      const wantsShoot = input.shoot;
+      input.shoot = false;
+
+      if (wantsShoot && !player.isReloading && player.bullets > 0) {
         const lastShot = this.playerLastShot.get(sessionId) ?? 0;
         if (now - lastShot >= SHOOT_COOLDOWN) {
           this.playerLastShot.set(sessionId, now);
+          player.bullets -= 1;
+          if (player.bullets === 0 && player.totalAmmo > 0) {
+            player.isReloading = true;
+            this.playerReloadStart.set(sessionId, now);
+          }
 
           // Raycast
           const pos = body.translation();
@@ -223,6 +261,7 @@ export class MyRoom extends Room {
     this.playerClients.set(client.sessionId, client);
     this.playerLastShot.set(client.sessionId, 0);
     this.playerBurstIndex.set(client.sessionId, 0);
+    this.playerReloadStart.set(client.sessionId, 0);
     this.state.players.set(client.sessionId, player);
   }
 
@@ -235,6 +274,7 @@ export class MyRoom extends Room {
     this.playerColliderHandles.delete(client.sessionId);
     this.playerLastShot.delete(client.sessionId);
     this.playerBurstIndex.delete(client.sessionId);
+    this.playerReloadStart.delete(client.sessionId);
     this.playerClients.delete(client.sessionId);
     this.playerBodies.delete(client.sessionId);
     this.playerVelocities.delete(client.sessionId);

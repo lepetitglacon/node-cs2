@@ -37,6 +37,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
   const localPos = useRef({ x: player.x, y: player.y, z: player.z })
   const localVel = useRef({ x: 0, z: 0 })
   const isFiringRef = useRef(false)
+  const shootPendingRef = useRef(false)
 
   useEffect(() => {
     if (!scene) return
@@ -65,13 +66,24 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     canvas.addEventListener('click', requestLock)
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && document.pointerLockElement) isFiringRef.current = true
+      if (e.button === 0 && document.pointerLockElement) {
+        isFiringRef.current = true
+        shootPendingRef.current = true
+      }
     }
     const handleMouseUp = (e: MouseEvent) => {
       if (e.button === 0) isFiringRef.current = false
     }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'r' || e.key === 'R') {
+        const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
+        if (!p || p.isReloading || p.totalAmmo <= 0 || p.bullets >= 30) return
+        roomRef.current.send('reload')
+      }
+    }
     document.addEventListener('mousedown', handleMouseDown)
     document.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener('keydown', handleKeyDown)
 
     const mat = new StandardMaterial('debug-local-mat', scene)
     mat.wireframe = true
@@ -89,6 +101,7 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
       canvas.removeEventListener('click', requestLock)
       document.removeEventListener('mousedown', handleMouseDown)
       document.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('keydown', handleKeyDown)
       document.exitPointerLock()
       camera.detachControl()
       camera.dispose()
@@ -140,7 +153,13 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
       right: input.current.right,
       yaw: camera.rotation.y,
       pitch: camera.rotation.x,
-      shoot: isFiringRef.current,
+      shoot: (() => {
+        const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
+        const canShoot = !p?.isReloading && (p?.bullets ?? 0) > 0
+        const fire = canShoot && (isFiringRef.current || shootPendingRef.current)
+        shootPendingRef.current = false
+        return fire
+      })(),
     })
   }, TICK_RATE)
 

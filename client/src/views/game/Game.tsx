@@ -5,12 +5,14 @@ import { useGame } from './GameContext.tsx'
 import { PlayerCamera } from './PlayerCamera.tsx'
 import { WeaponManager } from './WeaponManager.tsx'
 import { OtherPlayer } from './OtherPlayer.tsx'
+import { MapLoader } from './MapLoader.tsx'
+import { DebugMapMesh } from './DebugMapMesh.tsx'
 import { GameOverlay } from '@/components/GameOverlay.tsx'
 import { DeathScreen } from '@/components/DeathScreen.tsx'
 import { LoadingScreen } from '@/components/LoadingScreen.tsx'
 
 export const Game = () => {
-  const { room, currentPlayer, otherPlayers, isReady } = useGame()
+  const { room, currentPlayer, otherPlayers, isReady, state } = useGame()
   const isDebug = useDebugMode()
 
   if (!isReady) return <LoadingScreen />
@@ -20,6 +22,32 @@ export const Game = () => {
       <GameOverlay>
         <DeathScreen />
       </GameOverlay>
+      <div
+        style={{
+          position: 'absolute',
+          bottom: 24,
+          right: 24,
+          zIndex: 10,
+          color: 'white',
+          fontFamily: 'monospace',
+          fontSize: 22,
+          fontWeight: 'bold',
+          pointerEvents: 'none',
+          textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+        }}
+      >
+        <span style={{ color: currentPlayer?.isReloading ? '#f90' : 'white' }}>
+          {currentPlayer?.isReloading
+            ? 'RELOAD...'
+            : (currentPlayer?.bullets ?? 30)}
+        </span>
+        <span style={{ color: '#aaa', fontSize: 16 }}>
+          / {currentPlayer?.totalAmmo ?? 90}
+        </span>
+      </div>
       {isDebug && (
         <div
           style={{
@@ -51,7 +79,8 @@ export const Game = () => {
             intensity={0.7}
             direction={new Vector3(0, 1, 0)}
           />
-          <ground name="ground" width={20} height={20} />
+          <MapLoader mapId={state?.mapId ?? 'test1'} />
+          <DebugMapMesh room={room!} isDebug={isDebug} />
 
           <PlayerCamera
             room={room!}
