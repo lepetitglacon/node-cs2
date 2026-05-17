@@ -20,7 +20,6 @@ export const DeathScreen = () => {
 
   return (
     <>
-      {currentPlayer.moveState}
       {currentPlayer.state === 'dead' && (
         <div className="flex flex-col items-center gap-8">
           <h1 className="text-8xl font-bold text-red-500">YOU ARE DEAD</h1>

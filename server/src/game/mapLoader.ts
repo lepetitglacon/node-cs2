@@ -11,6 +11,7 @@ export type ShapeType = "trimesh" | "cuboid" | "cylinder" | "ball" | "none";
 // "none" = mesh purement visuelle, aucun collider créé.
 export const MESH_SHAPE_MAP: Record<string, ShapeType> = {
   Plane: "trimesh",
+  Cube: "cuboid",
 };
 
 function transformPositions(raw: Float32Array, mat: number[]): Float32Array {
@@ -87,7 +88,7 @@ export async function loadMapColliders(world: RAPIER.World, mapId: string): Prom
     const mesh = node.getMesh();
     if (!mesh) continue;
 
-    const shapeType = MESH_SHAPE_MAP[mesh.getName()] ?? "none";
+    const shapeType = MESH_SHAPE_MAP[mesh.getName().split('.')[0]] ?? "none";
     if (shapeType === "none") continue;
 
     const mat = node.getMatrix();

@@ -12,7 +12,7 @@ import { DeathScreen } from '@/components/DeathScreen.tsx'
 import { LoadingScreen } from '@/components/LoadingScreen.tsx'
 
 export const Game = () => {
-  const { room, currentPlayer, otherPlayers, isReady, state } = useGame()
+  const { room, currentPlayer, otherPlayers, isReady, state, inputRef } = useGame()
   const isDebug = useDebugMode()
 
   if (!isReady) return <LoadingScreen />
@@ -86,6 +86,7 @@ export const Game = () => {
             room={room!}
             player={currentPlayer!}
             isDebug={isDebug}
+            inputRef={inputRef}
           />
           <WeaponManager room={room!} />
 

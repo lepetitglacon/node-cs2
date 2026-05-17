@@ -9,7 +9,7 @@ import {
   type Mesh,
 } from '@babylonjs/core'
 import type { Room } from '@colyseus/sdk'
-import { usePlayerInput } from '@/hooks/usePlayerInput.ts'
+import type { InputState } from '@/hooks/useInput.ts'
 import { useTickLoop } from '@/hooks/useTickLoop.ts'
 import { applyMovement } from '@/game/movement.ts'
 
@@ -17,6 +17,7 @@ interface Props {
   room: Room
   player: { x: number; y: number; z: number }
   isDebug: boolean
+  inputRef: React.MutableRefObject<InputState>
 }
 
 const HEIGHT = 1.7
@@ -24,7 +25,7 @@ const BODY_Y_OFFSET = 0.85
 const RECONCILE_LERP = 0.05
 const TICK_RATE = 64
 
-export const PlayerCamera = ({ room, player, isDebug }: Props) => {
+export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   const scene = useScene()
   const cameraRef = useRef<FreeCamera | null>(null)
   const debugMeshRef = useRef<Mesh | null>(null)
@@ -32,12 +33,9 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
   isDebugRef.current = isDebug
   const roomRef = useRef(room)
   roomRef.current = room
-  const input = usePlayerInput()
 
   const localPos = useRef({ x: player.x, y: player.y, z: player.z })
   const localVel = useRef({ x: 0, z: 0 })
-  const isFiringRef = useRef(false)
-  const shootPendingRef = useRef(false)
 
   useEffect(() => {
     if (!scene) return
@@ -65,15 +63,6 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const requestLock = () => canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
 
-    const handleMouseDown = (e: MouseEvent) => {
-      if (e.button === 0 && document.pointerLockElement) {
-        isFiringRef.current = true
-        shootPendingRef.current = true
-      }
-    }
-    const handleMouseUp = (e: MouseEvent) => {
-      if (e.button === 0) isFiringRef.current = false
-    }
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
         const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
@@ -81,8 +70,6 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
         roomRef.current.send('reload')
       }
     }
-    document.addEventListener('mousedown', handleMouseDown)
-    document.addEventListener('mouseup', handleMouseUp)
     document.addEventListener('keydown', handleKeyDown)
 
     const mat = new StandardMaterial('debug-local-mat', scene)
@@ -99,8 +86,6 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
 
     return () => {
       canvas.removeEventListener('click', requestLock)
-      document.removeEventListener('mousedown', handleMouseDown)
-      document.removeEventListener('mouseup', handleMouseUp)
       document.removeEventListener('keydown', handleKeyDown)
       document.exitPointerLock()
       camera.detachControl()
@@ -142,24 +127,18 @@ export const PlayerCamera = ({ room, player, isDebug }: Props) => {
     const camera = cameraRef.current
     if (!camera) return
 
-    applyMovement(localVel.current, input.current, camera.rotation.y)
+    applyMovement(localVel.current, inputRef.current, camera.rotation.y)
     localPos.current.x += localVel.current.x
     localPos.current.z += localVel.current.z
 
     roomRef.current.send('playerInput', {
-      forward: input.current.forward,
-      back: input.current.back,
-      left: input.current.left,
-      right: input.current.right,
+      forward: inputRef.current.forward,
+      back: inputRef.current.back,
+      left: inputRef.current.left,
+      right: inputRef.current.right,
       yaw: camera.rotation.y,
       pitch: camera.rotation.x,
-      shoot: (() => {
-        const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
-        const canShoot = !p?.isReloading && (p?.bullets ?? 0) > 0
-        const fire = canShoot && (isFiringRef.current || shootPendingRef.current)
-        shootPendingRef.current = false
-        return fire
-      })(),
+      shoot: inputRef.current.shoot,
     })
   }, TICK_RATE)
 
