@@ -47,11 +47,13 @@ const server = defineServer({
      * Read more: https://expressjs.com/en/starter/basic-routing.html
      */
     express: (app) => {
-        app.use("/assets", express.static(path.join(__dirname, "../public/assets")));
-        console.log(`serving statics ${path.join(__dirname, "../public/assets")}`)
+        const publicAssets = path.join(process.cwd(), "public/assets");
+        app.use("/assets", express.static(publicAssets));
+        console.log(`serving statics from ${publicAssets}`)
 
         // Serve client's dist folder in production
-        const clientDist = path.join(__dirname, "../../client/dist");
+        const clientDist = path.resolve(process.cwd(), "../client/dist");
+
         if (process.env.NODE_ENV === "production") {
             app.use(express.static(clientDist));
             app.get("*", (req, res, next) => {

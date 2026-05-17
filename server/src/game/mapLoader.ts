@@ -112,6 +112,9 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
   // Use process.cwd() to get the root of the server directory
   const glbPath = path.resolve(process.cwd(), "public/assets/map", `${mapId}.glb`);
   
+  console.log(`[MAP_LOADER] Target path: ${glbPath}`);
+  console.log(`[MAP_LOADER] CWD: ${process.cwd()}`);
+  
   const document = await io.read(glbPath);
   const geometries: MeshGeometry[] = [];
   const spawns: SpawnPoints = { team1: [], team2: [] };
