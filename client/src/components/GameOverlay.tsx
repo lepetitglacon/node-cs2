@@ -1,5 +1,6 @@
 import React from 'react'
 import { useGame } from '@/views/game/GameContext.tsx'
+import { Crosshair } from '@/components/Crosshair.tsx'
 
 interface GameOverlayProps {
   children?: React.ReactNode
@@ -28,6 +29,7 @@ export const GameOverlay = ({ children }: GameOverlayProps) => {
       } `}
     >
       {children}
+      {currentPlayer.state !== 'dead' && <Crosshair />}
       <div
         style={{
           position: 'absolute',

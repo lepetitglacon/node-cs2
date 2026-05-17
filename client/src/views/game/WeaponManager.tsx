@@ -16,6 +16,7 @@ interface Props {
 
 const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
 const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
+const RELOAD_SOUND_URL = 'http://localhost:2567/assets/sound/ak_reload.wav'
 const SHOT_POOL_SIZE = 6
 const WEAPON_OFFSET = new Vector3(0.15, -0.25, 0.4)
 const WEAPON_ROTATION = new Vector3(0, Math.PI * 1.5, 0)
@@ -40,25 +41,35 @@ export const WeaponManager = ({ room }: Props) => {
   const lastRecoilTimeRef = useRef(0)
   const shotPoolRef = useRef<StaticSound[]>([])
   const shotPoolIndexRef = useRef(0)
+  const reloadSoundRef = useRef<StaticSound | null>(null)
+  const wasReloadingRef = useRef(false)
 
   useEffect(() => {
     if (!scene) return
 
     let cancelled = false
 
+    const id = Math.random().toString(36).slice(2)
     const aud = async () => {
-      const pool: StaticSound[] = []
-      for (let i = 0; i < SHOT_POOL_SIZE; i++) {
-        pool.push(await CreateSoundAsync(`ak-shot-local-${i}`, SHOT_SOUND_URL))
-      }
+      const [pool, reload] = await Promise.all([
+        Promise.all(
+          Array.from({ length: SHOT_POOL_SIZE }, (_, i) =>
+            CreateSoundAsync(`ak-shot-${id}-${i}`, SHOT_SOUND_URL)
+          )
+        ),
+        CreateSoundAsync(`ak-reload-${id}`, RELOAD_SOUND_URL),
+      ])
       if (!cancelled) {
         shotPoolRef.current = pool
         shotPoolIndexRef.current = 0
+        reloadSoundRef.current = reload
       } else {
         pool.forEach((s) => s.dispose())
+        reload.dispose()
       }
     }
     aud()
+
 
     // Le groupe 2 se rend après la scène principale.
     // On vide le depth buffer avant ce groupe pour que l'arme passe toujours devant.
@@ -113,10 +124,16 @@ export const WeaponManager = ({ room }: Props) => {
       meshRef.current = null
       shotPoolRef.current.forEach((s) => s.dispose())
       shotPoolRef.current = []
+      reloadSoundRef.current?.dispose()
+      reloadSoundRef.current = null
     }
   }, [scene])
 
   useBeforeRender(() => {
+    const isReloading = !!(room.state?.players?.get(room.sessionId)?.isReloading)
+    if (isReloading && !wasReloadingRef.current) reloadSoundRef.current?.play()
+    wasReloadingRef.current = isReloading
+
     const mesh = meshRef.current
     if (!mesh) return
 
