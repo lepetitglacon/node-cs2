@@ -31,6 +31,14 @@ const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
 const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
 const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
 const SHOT_POOL_SIZE = 6
+const FOOTSTEP_SOUND_URLS = [
+  'http://localhost:2567/assets/sound/footstep_1.wav',
+  'http://localhost:2567/assets/sound/footstep_2.wav',
+  'http://localhost:2567/assets/sound/footstep_3.wav',
+]
+const FOOTSTEP_WALK_INTERVAL_MS = 400
+const FOOTSTEP_SPRINT_INTERVAL_MS = 270
+const FOOTSTEP_MAX_DISTANCE = 25
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
 // --- Offset de l'arme (espace local du pivot = origine joueur) ---
@@ -67,6 +75,9 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const animGroupsRef = useRef<AnimationGroup[]>([])
   const shotPoolRef = useRef<StaticSound[]>([])
   const shotPoolIndexRef = useRef(0)
+  const footstepPoolRef = useRef<StaticSound[]>([])
+  const lastFootstepAtRef = useRef(0)
+  const lastFootstepIdxRef = useRef(-1)
 
   useEffect(() => {
     if (!scene) return
@@ -172,24 +183,47 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       hpContainer.linkWithMesh(rootMesh)
     })
 
-    const aud = async () => {
-      const pool: StaticSound[] = []
-      for (let i = 0; i < SHOT_POOL_SIZE; i++) {
-        pool.push(
-          await CreateSoundAsync(`ak-shot-${pid}-${i}`, SHOT_SOUND_URL, {
-            spatialEnabled: true,
-            spatialMaxDistance: 80,
-          })
+    const loadShots = async () => {
+      try {
+        const pool = await Promise.all(
+          Array.from({ length: SHOT_POOL_SIZE }, (_, i) =>
+            CreateSoundAsync(`ak-shot-${pid}-${i}`, SHOT_SOUND_URL, {
+              spatialEnabled: true,
+              spatialMaxDistance: 80,
+            })
+          )
         )
-      }
-      if (!cancelled) {
+        if (cancelled) {
+          pool.forEach((s) => s.dispose())
+          return
+        }
         shotPoolRef.current = pool
         shotPoolIndexRef.current = 0
-      } else {
-        pool.forEach((s) => s.dispose())
+      } catch (e) {
+        console.warn('shot sounds load failed', e)
       }
     }
-    aud()
+    const loadFootsteps = async () => {
+      try {
+        const pool = await Promise.all(
+          FOOTSTEP_SOUND_URLS.map((url, i) =>
+            CreateSoundAsync(`footstep-${pid}-${i}`, url, {
+              spatialEnabled: true,
+              spatialMaxDistance: FOOTSTEP_MAX_DISTANCE,
+            })
+          )
+        )
+        if (cancelled) {
+          pool.forEach((s) => s.dispose())
+          return
+        }
+        footstepPoolRef.current = pool
+      } catch (e) {
+        console.warn('footstep sounds load failed (fichiers manquants ?)', e)
+      }
+    }
+    loadShots()
+    loadFootsteps()
 
     const shotHandler = roomRef.current?.onMessage(
       'shotFired',
@@ -237,6 +271,8 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       weaponPivotRef.current = null
       shotPoolRef.current.forEach((s) => s.dispose())
       shotPoolRef.current = []
+      footstepPoolRef.current.forEach((s) => s.dispose())
+      footstepPoolRef.current = []
       debugMesh.dispose()
       aimLine.dispose()
       gui.dispose()
@@ -247,6 +283,34 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     const mesh = meshRef.current
     const p = roomRef.current?.state?.players?.get(pid)
     if (!mesh || !p) return
+
+    // Footsteps : joué seulement pendant walk/sprint, à intervalle régulier,
+    // avec un son random différent du précédent pour éviter la répétition audible.
+    const moveState = p.moveState ?? 'idle'
+    const isWalking = moveState.startsWith('walk_')
+    const isSprinting = moveState.startsWith('sprint_')
+    if (isWalking || isSprinting) {
+      const interval = isSprinting
+        ? FOOTSTEP_SPRINT_INTERVAL_MS
+        : FOOTSTEP_WALK_INTERVAL_MS
+      const now = Date.now()
+      if (now - lastFootstepAtRef.current >= interval) {
+        const pool = footstepPoolRef.current
+        if (pool.length > 0) {
+          const lastIdx = lastFootstepIdxRef.current
+          let idx = Math.floor(Math.random() * pool.length)
+          if (pool.length > 1 && idx === lastIdx) idx = (idx + 1) % pool.length
+          const snd = pool[idx]
+          snd.spatial.position = new Vector3(p.x, p.y, p.z)
+          snd.play()
+          lastFootstepIdxRef.current = idx
+          lastFootstepAtRef.current = now
+        }
+      }
+    } else {
+      // Reset pour que le prochain pas démarre tout de suite quand le joueur reprend
+      lastFootstepAtRef.current = 0
+    }
 
     // Handle moveState changes
     if (p.moveState && p.moveState !== lastMoveStateRef.current) {
