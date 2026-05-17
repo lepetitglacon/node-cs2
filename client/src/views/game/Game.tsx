@@ -4,6 +4,7 @@ import { useDebugMode } from '@/hooks/useDebugMode.ts'
 import { useGame } from './GameContext.tsx'
 import { PlayerCamera } from './PlayerCamera.tsx'
 import { WeaponManager } from './WeaponManager.tsx'
+import { ImpactEffects } from './ImpactEffects.tsx'
 import { OtherPlayer } from './OtherPlayer.tsx'
 import { MapLoader } from './MapLoader.tsx'
 import { DebugMapMesh } from './DebugMapMesh.tsx'
@@ -91,6 +92,7 @@ export const Game = () => {
             inputRef={inputRef}
           />
           <WeaponManager room={room!} />
+          <ImpactEffects room={room!} />
 
           {otherPlayers &&
             Object.entries(otherPlayers).map(([pid]) =>

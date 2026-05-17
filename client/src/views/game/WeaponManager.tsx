@@ -27,7 +27,7 @@ const SWAY_MAX = 0.06
 const SWAY_LERP = 0.08
 const SWAY_DECAY = 0.8
 
-const RECOIL_APPLY_LERP = 0.4
+const RECOIL_APPLY_LERP = 1.0    // snap instantané : le kick caméra suit la trajectoire serveur sans retard
 const RECOIL_RECOVERY_LERP = 0.06
 const RECOIL_RECOVERY_DELAY = 250
 

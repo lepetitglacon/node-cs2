@@ -8,12 +8,16 @@ import RAPIER from "@dimforge/rapier3d-compat";
 const CAPSULE_HALF_HEIGHT = 0.6;
 const CAPSULE_RADIUS = 0.25;
 const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
-const EYE_HEIGHT = 1.60;
+const EYE_HEIGHT = 1.7; // Doit matcher PlayerCamera.HEIGHT côté client, sinon les bullets partent à une hauteur ≠ de la caméra → impacts décalés sous le viseur
 const MAX_RAY_DIST = 50;
 const SHOOT_COOLDOWN = 100;
 const BULLET_DAMAGE = 33;
 const BURST_RESET_MS = 450;
 const RELOAD_TIME_MS = 2500;
+// Offsets approximatifs du bout du canon par rapport à l'œil (en mètres) pour les tracers
+const MUZZLE_FORWARD = 0.45;
+const MUZZLE_RIGHT = 0.12;
+const MUZZLE_DOWN = 0.18;
 
 // Offsets cumulatifs du pattern AK-47 (pitch = recul vertical, yaw = dérive horizontale)
 const AK47_PATTERN: Array<{ pitch: number; yaw: number }> = [
@@ -236,13 +240,31 @@ export class MyRoom extends Room {
 
     const pos = body.translation();
     const headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
-    const ray = new RAPIER.Ray(
-      { x: pos.x, y: headY, z: pos.z },
-      { x: Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) }
-    );
-    const hit = this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+    const dirX = Math.sin(yaw) * Math.cos(pitch);
+    const dirY = -Math.sin(pitch);
+    const dirZ = Math.cos(yaw) * Math.cos(pitch);
+    const rgtX = Math.cos(yaw);
+    const rgtZ = -Math.sin(yaw);
+    const muzzleX = pos.x + dirX * MUZZLE_FORWARD + rgtX * MUZZLE_RIGHT;
+    const muzzleY = headY + dirY * MUZZLE_FORWARD - MUZZLE_DOWN;
+    const muzzleZ = pos.z + dirZ * MUZZLE_FORWARD + rgtZ * MUZZLE_RIGHT;
+    const ray = new RAPIER.Ray({ x: pos.x, y: headY, z: pos.z }, { x: dirX, y: dirY, z: dirZ });
+    const hit = this.world.castRayAndGetNormal(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+
+    let hitOwnerId: string | undefined;
+    let hitData: { x: number; y: number; z: number; nx: number; ny: number; nz: number; onPlayer: boolean } | null = null;
     if (hit) {
-      const hitOwnerId = this.colliderOwners.get(hit.collider.handle);
+      hitOwnerId = this.colliderOwners.get(hit.collider.handle);
+      hitData = {
+        x: pos.x + dirX * hit.timeOfImpact,
+        y: headY + dirY * hit.timeOfImpact,
+        z: pos.z + dirZ * hit.timeOfImpact,
+        nx: hit.normal.x,
+        ny: hit.normal.y,
+        nz: hit.normal.z,
+        onPlayer: !!hitOwnerId,
+      };
+
       if (hitOwnerId) {
         const target = this.state.players.get(hitOwnerId);
         if (target && target.health > 0 && this.strategy.canDamage(player, target)) {
@@ -258,8 +280,12 @@ export class MyRoom extends Room {
     this.playerClients.get(sessionId)?.send('recoil', AK47_PATTERN[Math.min(burstIndex, AK47_PATTERN.length - 1)]);
     this.playerBurstIndex.set(sessionId, burstIndex + 1);
 
-    const shooterClient = this.playerClients.get(sessionId);
-    this.broadcast('shotFired', { sessionId, x: pos.x, y: headY, z: pos.z }, { except: shooterClient });
+    this.broadcast('shotFired', {
+      sessionId,
+      x: pos.x, y: headY, z: pos.z,         // origine (œil) — utilisée pour le son spatial
+      mx: muzzleX, my: muzzleY, mz: muzzleZ, // bout du canon — utilisé pour le tracer
+      hit: hitData,
+    });
   }
 
   private killPlayer(victimId: string, victim: Player, killer: Player | null, now: number) {
