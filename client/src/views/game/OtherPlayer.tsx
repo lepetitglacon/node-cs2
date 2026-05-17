@@ -4,6 +4,7 @@ import {
   SceneLoader,
   MeshBuilder,
   Quaternion,
+  CreateSoundAsync,
   Vector3,
   TransformNode,
   StandardMaterial,
@@ -11,6 +12,7 @@ import {
   type LinesMesh,
   type AbstractMesh,
   type AnimationGroup,
+  type StaticSound,
 } from '@babylonjs/core'
 import { AdvancedDynamicTexture, Rectangle, TextBlock } from '@babylonjs/gui'
 import '@babylonjs/loaders/glTF'
@@ -27,6 +29,8 @@ const BODY_Y_OFFSET = 0.85
 const AIM_RAY_LENGTH = 50
 const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
 const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
+const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
+const SHOT_POOL_SIZE = 6
 const MODEL_OFFSET = Quaternion.RotationAxis(Vector3.Up(), Math.PI)
 
 // --- Offset de l'arme (espace local du pivot = origine joueur) ---
@@ -61,6 +65,8 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
   const lastHealthRef = useRef(-1)
   const lastMoveStateRef = useRef<string | null>(null)
   const animGroupsRef = useRef<AnimationGroup[]>([])
+  const shotPoolRef = useRef<StaticSound[]>([])
+  const shotPoolIndexRef = useRef(0)
 
   useEffect(() => {
     if (!scene) return
@@ -166,6 +172,38 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       hpContainer.linkWithMesh(rootMesh)
     })
 
+    const aud = async () => {
+      const pool: StaticSound[] = []
+      for (let i = 0; i < SHOT_POOL_SIZE; i++) {
+        pool.push(
+          await CreateSoundAsync(`ak-shot-${pid}-${i}`, SHOT_SOUND_URL, {
+            spatialEnabled: true,
+            spatialMaxDistance: 80,
+          })
+        )
+      }
+      if (!cancelled) {
+        shotPoolRef.current = pool
+        shotPoolIndexRef.current = 0
+      } else {
+        pool.forEach((s) => s.dispose())
+      }
+    }
+    aud()
+
+    const shotHandler = roomRef.current?.onMessage(
+      'shotFired',
+      (data: { sessionId: string; x: number; y: number; z: number }) => {
+        if (data.sessionId !== pid) return
+        const pool = shotPoolRef.current
+        if (pool.length === 0) return
+        const snd = pool[shotPoolIndexRef.current]
+        snd.spatial.position = new Vector3(data.x, data.y, data.z)
+        snd.play()
+        shotPoolIndexRef.current = (shotPoolIndexRef.current + 1) % pool.length
+      }
+    )
+
     const mat = new StandardMaterial(`debug-${pid}-mat`, scene)
     mat.wireframe = true
     mat.emissiveColor = new Color3(1, 0.3, 0)
@@ -189,6 +227,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
 
     return () => {
       cancelled = true
+      shotHandler?.()
       animGroupsRef.current.forEach((ag) => ag.dispose())
       meshRef.current?.dispose()
       meshRef.current = null
@@ -196,6 +235,8 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       weaponMeshRef.current = null
       weaponPivotRef.current?.dispose()
       weaponPivotRef.current = null
+      shotPoolRef.current.forEach((s) => s.dispose())
+      shotPoolRef.current = []
       debugMesh.dispose()
       aimLine.dispose()
       gui.dispose()

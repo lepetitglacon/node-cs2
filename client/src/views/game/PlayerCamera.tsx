@@ -63,6 +63,19 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
     const requestLock = () => canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
 
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0 || !document.pointerLockElement) return
+      const cam = cameraRef.current
+      if (!cam) return
+      roomRef.current.send('shotStart', { yaw: cam.rotation.y, pitch: cam.rotation.x })
+    }
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button !== 0) return
+      roomRef.current.send('shotEnd')
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    document.addEventListener('mouseup', handleMouseUp)
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'r' || e.key === 'R') {
         const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
@@ -86,6 +99,8 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
 
     return () => {
       canvas.removeEventListener('click', requestLock)
+      document.removeEventListener('mousedown', handleMouseDown)
+      document.removeEventListener('mouseup', handleMouseUp)
       document.removeEventListener('keydown', handleKeyDown)
       document.exitPointerLock()
       camera.detachControl()
@@ -141,7 +156,6 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
       jump: inputRef.current.jump,
       yaw: camera.rotation.y,
       pitch: camera.rotation.x,
-      shoot: inputRef.current.shoot,
     })
   }, TICK_RATE)
 

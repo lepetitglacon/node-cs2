@@ -12,7 +12,8 @@ import { DeathScreen } from '@/components/DeathScreen.tsx'
 import { LoadingScreen } from '@/components/LoadingScreen.tsx'
 
 export const Game = () => {
-  const { room, currentPlayer, otherPlayers, isReady, state, inputRef } = useGame()
+  const { room, currentPlayer, otherPlayers, isReady, state, inputRef } =
+    useGame()
   const isDebug = useDebugMode()
 
   if (!isReady) return <LoadingScreen />
@@ -71,6 +72,7 @@ export const Game = () => {
         antialias
         adaptToDeviceRatio
         canvasId="babylon-js"
+        engineOptions={{ audioEngine: true }}
         renderOptions={{ whenVisibleOnly: true }}
       >
         <Scene>

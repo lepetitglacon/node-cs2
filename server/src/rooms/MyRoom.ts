@@ -77,6 +77,8 @@ export class MyRoom extends Room {
   playerLastShot = new Map<string, number>();
   playerBurstIndex = new Map<string, number>();
   playerReloadStart = new Map<string, number>();
+  playerIsShooting = new Map<string, boolean>();
+  playerShotPending = new Map<string, { yaw: number; pitch: number } | null>();
 
   async onCreate(options: any) {
     await RAPIER.init();
@@ -90,6 +92,13 @@ export class MyRoom extends Room {
     });
     this.onMessage("playerInput", (client: Client, message: any) => {
       this.pendingInputs.set(client.sessionId, message);
+    });
+    this.onMessage("shotStart", (client: Client, message: { yaw: number; pitch: number }) => {
+      this.playerIsShooting.set(client.sessionId, true);
+      this.playerShotPending.set(client.sessionId, message);
+    });
+    this.onMessage("shotEnd", (client: Client) => {
+      this.playerIsShooting.set(client.sessionId, false);
     });
     this.onMessage("reload", (client: Client) => {
       const player = this.state.players.get(client.sessionId);
@@ -182,44 +191,13 @@ export class MyRoom extends Room {
       player.qz = -sy * sp;
       player.qw = cy * cp;
 
-      const wantsShoot = input.shoot;
-      input.shoot = false;
-
-      if (wantsShoot && !player.isReloading && player.bullets > 0) {
+      const isShooting = this.playerIsShooting.get(sessionId) ?? false;
+      const pending = this.playerShotPending.get(sessionId) ?? null;
+      if ((pending || isShooting) && !player.isReloading && player.bullets > 0) {
         const lastShot = this.playerLastShot.get(sessionId) ?? 0;
         if (now - lastShot >= SHOOT_COOLDOWN) {
-          this.playerLastShot.set(sessionId, now);
-          player.bullets -= 1;
-          if (player.bullets === 0 && player.totalAmmo > 0) {
-            player.isReloading = true;
-            this.playerReloadStart.set(sessionId, now);
-          }
-
-          // Raycast
-          const pos = body.translation();
-          const headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
-          const dirX = Math.sin(yaw) * Math.cos(pitch);
-          const dirY = -Math.sin(pitch);
-          const dirZ = Math.cos(yaw) * Math.cos(pitch);
-          const ray = new RAPIER.Ray(
-            { x: pos.x, y: headY, z: pos.z },
-            { x: dirX, y: dirY, z: dirZ }
-          );
-          const hit = this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
-
-          if (hit) {
-            const hitOwnerId = this.colliderOwners.get(hit.collider.handle);
-            if (hitOwnerId) {
-              const target = this.state.players.get(hitOwnerId);
-              if (target) target.health = Math.max(0, target.health - BULLET_DAMAGE);
-            }
-          }
-
-          // Envoie l'offset du pattern au client
-          const burstIndex = this.playerBurstIndex.get(sessionId) ?? 0;
-          const recoil = AK47_PATTERN[Math.min(burstIndex, AK47_PATTERN.length - 1)];
-          this.playerClients.get(sessionId)?.send('recoil', recoil);
-          this.playerBurstIndex.set(sessionId, burstIndex + 1);
+          if (pending) this.playerShotPending.set(sessionId, null);
+          this.fireShot(sessionId, player, body, pending?.yaw ?? yaw, pending?.pitch ?? pitch, now);
         }
       }
     });
@@ -239,6 +217,38 @@ export class MyRoom extends Room {
 
       if (player.health <= 0) player.state = 'dead';
     });
+  }
+
+  private fireShot(sessionId: string, player: Player, body: RAPIER.RigidBody, yaw: number, pitch: number, now: number) {
+    if (player.isReloading || player.bullets <= 0) return;
+    this.playerLastShot.set(sessionId, now);
+    player.bullets -= 1;
+    if (player.bullets === 0 && player.totalAmmo > 0) {
+      player.isReloading = true;
+      this.playerReloadStart.set(sessionId, now);
+    }
+
+    const pos = body.translation();
+    const headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
+    const ray = new RAPIER.Ray(
+      { x: pos.x, y: headY, z: pos.z },
+      { x: Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) }
+    );
+    const hit = this.world.castRay(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+    if (hit) {
+      const hitOwnerId = this.colliderOwners.get(hit.collider.handle);
+      if (hitOwnerId) {
+        const target = this.state.players.get(hitOwnerId);
+        if (target) target.health = Math.max(0, target.health - BULLET_DAMAGE);
+      }
+    }
+
+    const burstIndex = this.playerBurstIndex.get(sessionId) ?? 0;
+    this.playerClients.get(sessionId)?.send('recoil', AK47_PATTERN[Math.min(burstIndex, AK47_PATTERN.length - 1)]);
+    this.playerBurstIndex.set(sessionId, burstIndex + 1);
+
+    const shooterClient = this.playerClients.get(sessionId);
+    this.broadcast('shotFired', { sessionId, x: pos.x, y: headY, z: pos.z }, { except: shooterClient });
   }
 
   onAuth(client: Client, options: any, context: any) {
@@ -273,6 +283,8 @@ export class MyRoom extends Room {
     this.playerLastShot.set(client.sessionId, 0);
     this.playerBurstIndex.set(client.sessionId, 0);
     this.playerReloadStart.set(client.sessionId, 0);
+    this.playerIsShooting.set(client.sessionId, false);
+    this.playerShotPending.set(client.sessionId, null);
     this.state.players.set(client.sessionId, player);
   }
 
@@ -286,6 +298,8 @@ export class MyRoom extends Room {
     this.playerLastShot.delete(client.sessionId);
     this.playerBurstIndex.delete(client.sessionId);
     this.playerReloadStart.delete(client.sessionId);
+    this.playerIsShooting.delete(client.sessionId);
+    this.playerShotPending.delete(client.sessionId);
     this.playerClients.delete(client.sessionId);
     this.playerBodies.delete(client.sessionId);
     this.playerVelocities.delete(client.sessionId);

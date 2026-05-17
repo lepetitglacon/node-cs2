@@ -1,6 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
-import { SceneLoader, Vector3, type AbstractMesh } from '@babylonjs/core'
+import {
+  SceneLoader,
+  CreateSoundAsync,
+  Vector3,
+  type AbstractMesh,
+  type StaticSound,
+} from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 import type { Room } from '@colyseus/sdk'
 
@@ -9,6 +15,8 @@ interface Props {
 }
 
 const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
+const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
+const SHOT_POOL_SIZE = 6
 const WEAPON_OFFSET = new Vector3(0.15, -0.25, 0.4)
 const WEAPON_ROTATION = new Vector3(0, Math.PI * 1.5, 0)
 const WEAPON_GROUP = 2
@@ -30,15 +38,32 @@ export const WeaponManager = ({ room }: Props) => {
   const targetRecoilRef = useRef({ pitch: 0, yaw: 0 })
   const appliedRecoilRef = useRef({ pitch: 0, yaw: 0 })
   const lastRecoilTimeRef = useRef(0)
+  const shotPoolRef = useRef<StaticSound[]>([])
+  const shotPoolIndexRef = useRef(0)
 
   useEffect(() => {
     if (!scene) return
+
+    let cancelled = false
+
+    const aud = async () => {
+      const pool: StaticSound[] = []
+      for (let i = 0; i < SHOT_POOL_SIZE; i++) {
+        pool.push(await CreateSoundAsync(`ak-shot-local-${i}`, SHOT_SOUND_URL))
+      }
+      if (!cancelled) {
+        shotPoolRef.current = pool
+        shotPoolIndexRef.current = 0
+      } else {
+        pool.forEach((s) => s.dispose())
+      }
+    }
+    aud()
 
     // Le groupe 2 se rend après la scène principale.
     // On vide le depth buffer avant ce groupe pour que l'arme passe toujours devant.
     scene.setRenderingAutoClearDepthStencil(WEAPON_GROUP, true)
 
-    let cancelled = false
     SceneLoader.ImportMeshAsync('', WEAPON_URL, '', scene).then((result) => {
       if (cancelled) {
         result.meshes.forEach((m) => m.dispose())
@@ -65,10 +90,18 @@ export const WeaponManager = ({ room }: Props) => {
       mouseDeltaRef.current.y += e.movementY
     }
 
-    const recoilHandler = room.onMessage('recoil', (data: { pitch: number; yaw: number }) => {
-      targetRecoilRef.current = { pitch: data.pitch, yaw: data.yaw }
-      lastRecoilTimeRef.current = Date.now()
-    })
+    const recoilHandler = room.onMessage(
+      'recoil',
+      (data: { pitch: number; yaw: number }) => {
+        targetRecoilRef.current = { pitch: data.pitch, yaw: data.yaw }
+        lastRecoilTimeRef.current = Date.now()
+        const p = shotPoolRef.current
+        if (p.length > 0) {
+          p[shotPoolIndexRef.current].play()
+          shotPoolIndexRef.current = (shotPoolIndexRef.current + 1) % p.length
+        }
+      }
+    )
 
     document.addEventListener('mousemove', handleMouseMove)
 
@@ -78,6 +111,8 @@ export const WeaponManager = ({ room }: Props) => {
       document.removeEventListener('mousemove', handleMouseMove)
       meshRef.current?.dispose()
       meshRef.current = null
+      shotPoolRef.current.forEach((s) => s.dispose())
+      shotPoolRef.current = []
     }
   }, [scene])
 
@@ -105,20 +140,27 @@ export const WeaponManager = ({ room }: Props) => {
     const camera = scene?.activeCamera
     if (!camera) return
 
-    const recovering = Date.now() - lastRecoilTimeRef.current > RECOIL_RECOVERY_DELAY
+    const recovering =
+      Date.now() - lastRecoilTimeRef.current > RECOIL_RECOVERY_DELAY
 
     if (recovering) {
-      targetRecoilRef.current.pitch += (0 - targetRecoilRef.current.pitch) * RECOIL_RECOVERY_LERP
-      targetRecoilRef.current.yaw += (0 - targetRecoilRef.current.yaw) * RECOIL_RECOVERY_LERP
+      targetRecoilRef.current.pitch +=
+        (0 - targetRecoilRef.current.pitch) * RECOIL_RECOVERY_LERP
+      targetRecoilRef.current.yaw +=
+        (0 - targetRecoilRef.current.yaw) * RECOIL_RECOVERY_LERP
     }
 
-    const newPitch = appliedRecoilRef.current.pitch +
-      (targetRecoilRef.current.pitch - appliedRecoilRef.current.pitch) * RECOIL_APPLY_LERP
-    const newYaw = appliedRecoilRef.current.yaw +
-      (targetRecoilRef.current.yaw - appliedRecoilRef.current.yaw) * RECOIL_APPLY_LERP
+    const newPitch =
+      appliedRecoilRef.current.pitch +
+      (targetRecoilRef.current.pitch - appliedRecoilRef.current.pitch) *
+        RECOIL_APPLY_LERP
+    const newYaw =
+      appliedRecoilRef.current.yaw +
+      (targetRecoilRef.current.yaw - appliedRecoilRef.current.yaw) *
+        RECOIL_APPLY_LERP
 
-    camera.rotation.x -= (newPitch - appliedRecoilRef.current.pitch)
-    camera.rotation.y += (newYaw - appliedRecoilRef.current.yaw)
+    camera.rotation.x -= newPitch - appliedRecoilRef.current.pitch
+    camera.rotation.y += newYaw - appliedRecoilRef.current.yaw
 
     appliedRecoilRef.current = { pitch: newPitch, yaw: newYaw }
   })
