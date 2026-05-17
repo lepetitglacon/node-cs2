@@ -95,6 +95,11 @@ export class MyRoom extends Room {
     this.mapGeometries = map.geometries;
     this.spawns = map.spawns;
 
+    await this.setMetadata({
+      mapId: this.state.mapId,
+      mode: this.state.mode,
+    });
+
     this.onMessage("requestDebugMesh", (client: Client) => {
       client.send("debugMapMesh", this.mapGeometries);
     });
