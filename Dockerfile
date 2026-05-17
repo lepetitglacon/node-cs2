@@ -13,6 +13,8 @@ WORKDIR /app/server
 COPY server/package*.json ./
 RUN npm install
 COPY server/ ./
+# Explicitly ensure public folder is here before building
+RUN ls -la public/assets/map/
 RUN npm run build
 
 # Stage 3: Final Production Image
