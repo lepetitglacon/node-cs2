@@ -5,7 +5,7 @@ export const DeathScreen = () => {
   const { room, currentPlayer } = useGame()
 
   const onRespawn = async () => {
-    room.send('respawn')
+    room?.send('respawn')
   }
 
   useEffect(() => {

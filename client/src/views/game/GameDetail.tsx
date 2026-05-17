@@ -10,13 +10,14 @@ export const GameDetail = () => {
 
   return (
     <RoomProvider
-      connect={async () => {
+      connect={(async () => {
+        if (!id) return
         try {
           return await client.joinById(id)
         } catch (e) {
           navigate('/')
         }
-      }}
+      }) as any}
     >
       <GameProvider>
         <Game />

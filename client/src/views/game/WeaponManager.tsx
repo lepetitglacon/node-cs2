@@ -6,6 +6,7 @@ import {
   Vector3,
   type AbstractMesh,
   type StaticSound,
+  TargetCamera,
 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 import type { Room } from '@colyseus/sdk'
@@ -14,9 +15,14 @@ interface Props {
   room: Room
 }
 
-const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
-const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
-const RELOAD_SOUND_URL = 'http://localhost:2567/assets/sound/ak_reload.wav'
+const isProd = import.meta.env.PROD
+const SERVER_URL = isProd 
+  ? `${window.location.protocol}//${window.location.host}` 
+  : 'http://localhost:2567'
+
+const WEAPON_URL = `${SERVER_URL}/assets/weapon/ak-47.glb`
+const SHOT_SOUND_URL = `${SERVER_URL}/assets/sound/ak_shot.wav`
+const RELOAD_SOUND_URL = `${SERVER_URL}/assets/sound/ak_reload.wav`
 const SHOT_POOL_SIZE = 6
 const WEAPON_OFFSET = new Vector3(0.15, -0.25, 0.4)
 const WEAPON_ROTATION = new Vector3(0, Math.PI * 1.5, 0)
@@ -154,8 +160,8 @@ export const WeaponManager = ({ room }: Props) => {
     mesh.rotation.z = WEAPON_ROTATION.z - swayRef.current.x * 0.3
 
     // Recoil — appliqué en delta sur la caméra pour ne pas perturber la rotation souris
-    const camera = scene?.activeCamera
-    if (!camera) return
+    const camera = scene?.activeCamera as TargetCamera
+    if (!camera || !camera.rotation) return
 
     const recovering =
       Date.now() - lastRecoilTimeRef.current > RECOIL_RECOVERY_DELAY

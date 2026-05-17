@@ -27,14 +27,19 @@ interface Props {
 const LERP = 0.2
 const BODY_Y_OFFSET = 0.85
 const AIM_RAY_LENGTH = 50
-const MODEL_URL = 'http://localhost:2567/assets/soldier.glb'
-const WEAPON_URL = 'http://localhost:2567/assets/weapon/ak-47.glb'
-const SHOT_SOUND_URL = 'http://localhost:2567/assets/sound/ak_shot.wav'
+const isProd = import.meta.env.PROD
+const SERVER_URL = isProd 
+  ? `${window.location.protocol}//${window.location.host}` 
+  : 'http://localhost:2567'
+
+const MODEL_URL = `${SERVER_URL}/assets/soldier.glb`
+const WEAPON_URL = `${SERVER_URL}/assets/weapon/ak-47.glb`
+const SHOT_SOUND_URL = `${SERVER_URL}/assets/sound/ak_shot.wav`
 const SHOT_POOL_SIZE = 6
 const FOOTSTEP_SOUND_URLS = [
-  'http://localhost:2567/assets/sound/footstep_1.wav',
-  'http://localhost:2567/assets/sound/footstep_2.wav',
-  'http://localhost:2567/assets/sound/footstep_3.wav',
+  `${SERVER_URL}/assets/sound/footstep_1.wav`,
+  `${SERVER_URL}/assets/sound/footstep_2.wav`,
+  `${SERVER_URL}/assets/sound/footstep_3.wav`,
 ]
 const FOOTSTEP_WALK_INTERVAL_MS = 800
 const FOOTSTEP_SPRINT_INTERVAL_MS = 400
@@ -97,7 +102,7 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     hpContainer.height = '24px'
     hpContainer.background = '#000000'
     hpContainer.thickness = 1
-    hpContainer.borderColor = '#ffffff'
+    hpContainer.color = '#ffffff'
     gui.addControl(hpContainer)
     hpContainer.linkOffsetY = 50
 
@@ -112,7 +117,6 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     const hpText = new TextBlock(`hp-text-${pid}`, '100')
     hpText.fontSize = 12
     hpText.color = 'white'
-    hpText.thickness = 0
     hpContainer.addControl(hpText)
     hpTextRef.current = hpText
 

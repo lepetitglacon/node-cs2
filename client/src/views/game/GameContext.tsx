@@ -4,7 +4,7 @@ import { useRoom, useRoomState } from './roomContext.ts'
 import { useInput, type InputState } from '@/hooks/useInput.ts'
 
 interface GameContextType {
-  room: Room
+  room: Room | undefined
   state: any
   currentPlayer: any
   otherPlayers: any
@@ -26,8 +26,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const isReady = !!room && !!state && !!currentPlayer
 
   const otherPlayers = Object.entries(state?.players ?? {})
-    .filter(([id, p]) => {
-      return id !== currentPlayer.id
+    .filter(([id]) => {
+      return id !== currentPlayer?.id
     })
     .reduce(
       (acc, [id, p]) => {
