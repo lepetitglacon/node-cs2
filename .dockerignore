@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/build
+.git
+.idea
+.claude
+README.md
+CLAUDE.md
+assets/blender
+assets/mixamo
