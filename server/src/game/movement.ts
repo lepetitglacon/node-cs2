@@ -1,8 +1,11 @@
 export const ACCELERATION   = 0.012
 export const FRICTION       = 0.72
 export const MAX_SPEED      = 0.14
-export const SPRINT_MULT    = 1.65
+export const SPRINT_MULT    = 1.9
 export const CROUCH_MULT    = 0.5
+
+// Vitesse réellement atteinte en walk à l'équilibre (accel/friction convergent en-dessous du cap)
+const WALK_SPEED = ACCELERATION * FRICTION / (1 - FRICTION)
 
 export interface Velocity {
   x: number
@@ -24,10 +27,23 @@ export const applyMovement = (velocity: Velocity, inputs: Inputs, yaw: number): 
   const fwdX = Math.sin(yaw), fwdZ = Math.cos(yaw)
   const rgtX = Math.cos(yaw), rgtZ = -Math.sin(yaw)
 
-  if (inputs.forward) { velocity.x += fwdX * ACCELERATION; velocity.z += fwdZ * ACCELERATION }
-  if (inputs.back)    { velocity.x -= fwdX * ACCELERATION; velocity.z -= fwdZ * ACCELERATION }
-  if (inputs.left)    { velocity.x -= rgtX * ACCELERATION; velocity.z -= rgtZ * ACCELERATION }
-  if (inputs.right)   { velocity.x += rgtX * ACCELERATION; velocity.z += rgtZ * ACCELERATION }
+  let dirX = 0, dirZ = 0
+  if (inputs.forward) { dirX += fwdX; dirZ += fwdZ }
+  if (inputs.back)    { dirX -= fwdX; dirZ -= fwdZ }
+  if (inputs.left)    { dirX -= rgtX; dirZ -= rgtZ }
+  if (inputs.right)   { dirX += rgtX; dirZ += rgtZ }
+  const dirLen = Math.sqrt(dirX * dirX + dirZ * dirZ)
+
+  // Sprint : vélocité instantanée à WALK_SPEED × SPRINT_MULT, pas d'accélération
+  if (inputs.sprint && dirLen > 0) {
+    const sprintSpeed = WALK_SPEED * SPRINT_MULT
+    velocity.x = (dirX / dirLen) * sprintSpeed
+    velocity.z = (dirZ / dirLen) * sprintSpeed
+    return
+  }
+
+  velocity.x += dirX * ACCELERATION
+  velocity.z += dirZ * ACCELERATION
 
   const speed = Math.sqrt(velocity.x ** 2 + velocity.z ** 2)
   if (speed > maxSpeed) {
