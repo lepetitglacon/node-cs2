@@ -1,7 +1,7 @@
 import { Room, Client, CloseCode } from "colyseus";
 import { MyRoomState, Player } from "./schema/MyRoomState.js";
 import { applyMovement } from "../game/movement.js";
-import { loadMap, type MeshGeometry, type SpawnPoints } from "../game/mapLoader.js";
+import { loadMap, type MeshGeometry, type ColliderDescriptor, type SpawnPoints } from "../game/mapLoader.js";
 import { createStrategy, type MatchStrategy } from "../game/matchStrategy.js";
 import RAPIER from "@dimforge/rapier3d-compat";
 
@@ -70,6 +70,7 @@ export class MyRoom extends Room {
 
   world!: RAPIER.World;
   mapGeometries: MeshGeometry[] = [];
+  mapColliders: ColliderDescriptor[] = [];
   spawns!: SpawnPoints;
   playerBodies = new Map<string, RAPIER.RigidBody>();
   playerVelocities = new Map<string, { x: number; z: number }>();
@@ -93,6 +94,7 @@ export class MyRoom extends Room {
 
     const map = await loadMap(this.world, this.state.mapId);
     this.mapGeometries = map.geometries;
+    this.mapColliders = map.colliders;
     this.spawns = map.spawns;
 
     await this.setMetadata({
@@ -101,7 +103,7 @@ export class MyRoom extends Room {
     });
 
     this.onMessage("requestDebugMesh", (client: Client) => {
-      client.send("debugMapMesh", this.mapGeometries);
+      client.send("debugMapMesh", { geometries: this.mapGeometries, colliders: this.mapColliders });
     });
     this.onMessage("playerInput", (client: Client, message: any) => {
       this.pendingInputs.set(client.sessionId, message);

@@ -1,16 +1,13 @@
 import { useEffect } from 'react'
 import { useScene } from 'react-babylonjs'
-import { SceneLoader, Quaternion, type AbstractMesh } from '@babylonjs/core'
+import { Quaternion } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
+import { assetRegistry } from '@/game/assets/registry.ts'
+import { mapMeshKey } from '@/game/assets/manifest.ts'
 
 interface Props {
   mapId: string
 }
-
-const isProd = import.meta.env.PROD
-const SERVER_URL = isProd 
-  ? `${window.location.protocol}//${window.location.host}` 
-  : 'http://localhost:2567'
 
 export const MapLoader = ({ mapId }: Props) => {
   const scene = useScene()
@@ -18,30 +15,22 @@ export const MapLoader = ({ mapId }: Props) => {
   useEffect(() => {
     if (!scene || !mapId) return
 
-    let cancelled = false
-    const meshes: AbstractMesh[] = []
+    const container = assetRegistry.getMesh(mapMeshKey(mapId))
+    const instances = container.instantiateModelsToScene(
+      (name) => `map-${mapId}-${name}`,
+      false,
+      { doNotInstantiate: true }
+    )
 
-    SceneLoader.ImportMeshAsync(
-      '',
-      `${SERVER_URL}/assets/map/${mapId}.glb`,
-      '',
-      scene
-    ).then((result) => {
-      if (cancelled) {
-        result.meshes.forEach((m) => m.dispose())
-        return
-      }
-      meshes.push(...result.meshes)
-      const root = result.meshes[0]
-      if (root) {
-        console.log('root scaling:', root.scaling.toString())
-        root.rotationQuaternion = Quaternion.FromEulerAngles(0, 0, 0)
-      }
-    })
+    const root = instances.rootNodes[0]
+    if (root && 'rotationQuaternion' in root) {
+      ;(root as { rotationQuaternion: Quaternion }).rotationQuaternion =
+        Quaternion.FromEulerAngles(0, 0, 0)
+    }
 
     return () => {
-      cancelled = true
-      meshes.forEach((m) => m.dispose())
+      instances.rootNodes.forEach((n) => n.dispose())
+      instances.animationGroups.forEach((ag) => ag.dispose())
     }
   }, [scene, mapId])
 

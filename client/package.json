@@ -17,6 +17,7 @@
     "@chakra-ui/react": "^3.35.0",
     "@colyseus/react": "^0.1.15",
     "@colyseus/sdk": "^0.17.42",
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@tailwindcss/postcss": "^4.2.4",

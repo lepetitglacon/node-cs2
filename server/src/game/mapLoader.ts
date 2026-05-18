@@ -87,6 +87,12 @@ export interface MeshGeometry {
   indices: number[];
 }
 
+export interface ColliderDescriptor {
+  type: 'cuboid' | 'cylinder' | 'ball';
+  cx: number; cy: number; cz: number;
+  hx: number; hy: number; hz: number;
+}
+
 export interface SpawnPoint {
   x: number;
   y: number;
@@ -100,17 +106,19 @@ export interface SpawnPoints {
 
 export interface MapData {
   geometries: MeshGeometry[];
+  colliders: ColliderDescriptor[];
   spawns: SpawnPoints;
 }
 
 export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapData> {
   const io = new NodeIO();
-  
+
   // Use process.cwd() to get the root of the server directory
   const glbPath = path.resolve(process.cwd(), "public/assets/map", `${mapId}.glb`);
-  
+
   const document = await io.read(glbPath);
   const geometries: MeshGeometry[] = [];
+  const colliders: ColliderDescriptor[] = [];
   const spawns: SpawnPoints = { team1: [], team2: [] };
 
   for (const node of document.getRoot().listNodes()) {
@@ -158,9 +166,16 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
           positions: Array.from(positions),
           indices: Array.from(indices),
         });
+      } else {
+        const { center, half } = computeBounds(positions);
+        colliders.push({
+          type: shapeType as ColliderDescriptor['type'],
+          cx: center.x, cy: center.y, cz: center.z,
+          hx: half.x,  hy: half.y,  hz: half.z,
+        });
       }
     }
   }
 
-  return { geometries, spawns };
+  return { geometries, colliders, spawns };
 }

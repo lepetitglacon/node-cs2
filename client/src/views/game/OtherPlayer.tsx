@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
 import {
-  SceneLoader,
   MeshBuilder,
   Quaternion,
   CreateSoundAsync,
@@ -17,6 +16,8 @@ import {
 import { AdvancedDynamicTexture, Rectangle, TextBlock } from '@babylonjs/gui'
 import '@babylonjs/loaders/glTF'
 import { useRoom } from './roomContext.ts'
+import { assetRegistry } from '@/game/assets/registry.ts'
+import type { SoundKey } from '@/game/assets/manifest.ts'
 
 interface Props {
   pid: string
@@ -27,20 +28,9 @@ interface Props {
 const LERP = 0.2
 const BODY_Y_OFFSET = 0.85
 const AIM_RAY_LENGTH = 50
-const isProd = import.meta.env.PROD
-const SERVER_URL = isProd 
-  ? `${window.location.protocol}//${window.location.host}` 
-  : 'http://localhost:2567'
 
-const MODEL_URL = `${SERVER_URL}/assets/soldier.glb`
-const WEAPON_URL = `${SERVER_URL}/assets/weapon/ak-47.glb`
-const SHOT_SOUND_URL = `${SERVER_URL}/assets/sound/ak_shot.wav`
 const SHOT_POOL_SIZE = 6
-const FOOTSTEP_SOUND_URLS = [
-  `${SERVER_URL}/assets/sound/footstep_1.wav`,
-  `${SERVER_URL}/assets/sound/footstep_2.wav`,
-  `${SERVER_URL}/assets/sound/footstep_3.wav`,
-]
+const FOOTSTEP_SOUND_KEYS: SoundKey[] = ['footstep_1', 'footstep_2', 'footstep_3']
 const FOOTSTEP_WALK_INTERVAL_MS = 800
 const FOOTSTEP_SPRINT_INTERVAL_MS = 400
 const FOOTSTEP_MAX_DISTANCE = 25
@@ -131,26 +121,25 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
     ).multiply(MODEL_OFFSET)
     weaponPivotRef.current = weaponPivot
 
-    SceneLoader.ImportMeshAsync('', WEAPON_URL, '', scene).then((result) => {
-      if (cancelled) {
-        result.meshes.forEach((m) => m.dispose())
-        return
-      }
-      const weaponRoot = result.meshes[0]
+    // Arme : instance du container préchargé
+    const weaponInstances = assetRegistry
+      .getMesh('weapon_ak47')
+      .instantiateModelsToScene((n) => `weapon-${pid}-${n}`)
+    const weaponRoot = weaponInstances.rootNodes[0] as AbstractMesh
+    if (weaponRoot) {
       weaponRoot.parent = weaponPivot
       weaponRoot.position = WEAPON_HAND_OFFSET.clone()
       weaponRoot.rotation = WEAPON_HAND_ROTATION.clone()
       weaponRoot.scaling = WEAPON_HAND_SCALE.clone()
       weaponMeshRef.current = weaponRoot
-    })
+    }
 
-    SceneLoader.ImportMeshAsync('', MODEL_URL, '', scene).then((result) => {
-      if (cancelled) {
-        result.meshes.forEach((m) => m.dispose())
-        result.animationGroups.forEach((ag) => ag.dispose())
-        return
-      }
-      rootMesh = result.meshes[0]
+    // Soldat : instance du container préchargé (avec animations clonées)
+    const soldierInstances = assetRegistry
+      .getMesh('soldier')
+      .instantiateModelsToScene((n) => `soldier-${pid}-${n}`)
+    rootMesh = soldierInstances.rootNodes[0] as AbstractMesh
+    if (rootMesh) {
       rootMesh.name = name
       rootMesh.position.set(p?.x ?? 0, p?.y ?? 0, p?.z ?? 0)
       const serverQuat = new Quaternion(
@@ -162,15 +151,15 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       rootMesh.rotationQuaternion = serverQuat.multiply(MODEL_OFFSET)
       meshRef.current = rootMesh
 
-      animGroupsRef.current = result.animationGroups
-      result.animationGroups.forEach((ag) => ag.stop())
+      animGroupsRef.current = soldierInstances.animationGroups
+      soldierInstances.animationGroups.forEach((ag) => ag.stop())
 
       const playAnimation = (moveState: string) => {
         const animName = ANIM_MAP[moveState]
         if (!animName) return
 
         const shouldLoop = moveState !== 'dying'
-        result.animationGroups.forEach((ag) => {
+        soldierInstances.animationGroups.forEach((ag) => {
           if (ag.name.toLowerCase().includes(animName)) {
             ag.start(shouldLoop)
           } else {
@@ -185,46 +174,40 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
 
       // Lier la barre de HP au mesh une fois chargé
       hpContainer.linkWithMesh(rootMesh)
-    })
+    }
 
+    // Sons : créés depuis les buffers préchargés (pas de fetch réseau)
     const loadShots = async () => {
-      try {
-        const pool = await Promise.all(
-          Array.from({ length: SHOT_POOL_SIZE }, (_, i) =>
-            CreateSoundAsync(`ak-shot-${pid}-${i}`, SHOT_SOUND_URL, {
-              spatialEnabled: true,
-              spatialMaxDistance: 80,
-            })
+      const pool = await Promise.all(
+        Array.from({ length: SHOT_POOL_SIZE }, (_, i) =>
+          CreateSoundAsync(
+            `ak-shot-${pid}-${i}`,
+            assetRegistry.getSound('ak_shot'),
+            { spatialEnabled: true, spatialMaxDistance: 80 }
           )
         )
-        if (cancelled) {
-          pool.forEach((s) => s.dispose())
-          return
-        }
-        shotPoolRef.current = pool
-        shotPoolIndexRef.current = 0
-      } catch (e) {
-        console.warn('shot sounds load failed', e)
+      )
+      if (cancelled) {
+        pool.forEach((s) => s.dispose())
+        return
       }
+      shotPoolRef.current = pool
+      shotPoolIndexRef.current = 0
     }
     const loadFootsteps = async () => {
-      try {
-        const pool = await Promise.all(
-          FOOTSTEP_SOUND_URLS.map((url, i) =>
-            CreateSoundAsync(`footstep-${pid}-${i}`, url, {
-              spatialEnabled: true,
-              spatialMaxDistance: FOOTSTEP_MAX_DISTANCE,
-            })
-          )
+      const pool = await Promise.all(
+        FOOTSTEP_SOUND_KEYS.map((key, i) =>
+          CreateSoundAsync(`footstep-${pid}-${i}`, assetRegistry.getSound(key), {
+            spatialEnabled: true,
+            spatialMaxDistance: FOOTSTEP_MAX_DISTANCE,
+          })
         )
-        if (cancelled) {
-          pool.forEach((s) => s.dispose())
-          return
-        }
-        footstepPoolRef.current = pool
-      } catch (e) {
-        console.warn('footstep sounds load failed (fichiers manquants ?)', e)
+      )
+      if (cancelled) {
+        pool.forEach((s) => s.dispose())
+        return
       }
+      footstepPoolRef.current = pool
     }
     loadShots()
     loadFootsteps()
@@ -267,9 +250,9 @@ export const OtherPlayer = ({ pid, name, isDebug }: Props) => {
       cancelled = true
       shotHandler?.()
       animGroupsRef.current.forEach((ag) => ag.dispose())
-      meshRef.current?.dispose()
+      soldierInstances.rootNodes.forEach((n) => n.dispose())
+      weaponInstances.rootNodes.forEach((n) => n.dispose())
       meshRef.current = null
-      weaponMeshRef.current?.dispose()
       weaponMeshRef.current = null
       weaponPivotRef.current?.dispose()
       weaponPivotRef.current = null

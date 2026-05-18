@@ -44,8 +44,6 @@ export const DebugMapMesh = ({ room, isDebug }: Props) => {
       })
     })
 
-    room.send('requestDebugMesh')
-
     return () => {
       unsubscribe()
       meshesRef.current.forEach((m) => m.dispose())

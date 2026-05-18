@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useScene, useBeforeRender } from 'react-babylonjs'
 import {
-  SceneLoader,
   CreateSoundAsync,
   Vector3,
   type AbstractMesh,
@@ -10,19 +9,12 @@ import {
 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 import type { Room } from '@colyseus/sdk'
+import { assetRegistry } from '@/game/assets/registry.ts'
 
 interface Props {
   room: Room
 }
 
-const isProd = import.meta.env.PROD
-const SERVER_URL = isProd 
-  ? `${window.location.protocol}//${window.location.host}` 
-  : 'http://localhost:2567'
-
-const WEAPON_URL = `${SERVER_URL}/assets/weapon/ak-47.glb`
-const SHOT_SOUND_URL = `${SERVER_URL}/assets/sound/ak_shot.wav`
-const RELOAD_SOUND_URL = `${SERVER_URL}/assets/sound/ak_reload.wav`
 const SHOT_POOL_SIZE = 6
 const WEAPON_OFFSET = new Vector3(0.15, -0.25, 0.4)
 const WEAPON_ROTATION = new Vector3(0, Math.PI * 1.5, 0)
@@ -54,52 +46,55 @@ export const WeaponManager = ({ room }: Props) => {
     if (!scene) return
 
     let cancelled = false
-
     const id = Math.random().toString(36).slice(2)
+
+    // Sons : on crée les instances à partir des buffers préchargés (pas de fetch réseau)
     const aud = async () => {
       const [pool, reload] = await Promise.all([
         Promise.all(
           Array.from({ length: SHOT_POOL_SIZE }, (_, i) =>
-            CreateSoundAsync(`ak-shot-${id}-${i}`, SHOT_SOUND_URL)
+            CreateSoundAsync(`ak-shot-${id}-${i}`, assetRegistry.getSound('ak_shot'))
           )
         ),
-        CreateSoundAsync(`ak-reload-${id}`, RELOAD_SOUND_URL),
+        CreateSoundAsync(`ak-reload-${id}`, assetRegistry.getSound('ak_reload')),
       ])
-      if (!cancelled) {
-        shotPoolRef.current = pool
-        shotPoolIndexRef.current = 0
-        reloadSoundRef.current = reload
-      } else {
+      if (cancelled) {
         pool.forEach((s) => s.dispose())
         reload.dispose()
+        return
       }
+      shotPoolRef.current = pool
+      shotPoolIndexRef.current = 0
+      reloadSoundRef.current = reload
     }
     aud()
-
 
     // Le groupe 2 se rend après la scène principale.
     // On vide le depth buffer avant ce groupe pour que l'arme passe toujours devant.
     scene.setRenderingAutoClearDepthStencil(WEAPON_GROUP, true)
 
-    SceneLoader.ImportMeshAsync('', WEAPON_URL, '', scene).then((result) => {
-      if (cancelled) {
-        result.meshes.forEach((m) => m.dispose())
-        return
-      }
-      const camera = scene.getCameraByName('playerCamera')
-      if (!camera) {
-        result.meshes.forEach((m) => m.dispose())
-        return
-      }
-      const root = result.meshes[0]
-      result.meshes.forEach((m) => {
+    // Mesh arme : instancié depuis le container préchargé
+    const container = assetRegistry.getMesh('weapon_ak47')
+    const instances = container.instantiateModelsToScene(
+      (name) => `weapon-local-${id}-${name}`
+    )
+    const root = instances.rootNodes[0] as AbstractMesh
+    const camera = scene.getCameraByName('playerCamera')
+    if (camera && root) {
+      instances.rootNodes.forEach((node) => {
+        if ('renderingGroupId' in node) {
+          ;(node as AbstractMesh).renderingGroupId = WEAPON_GROUP
+        }
+      })
+      // S'applique aussi aux mesh enfants
+      root.getChildMeshes().forEach((m) => {
         m.renderingGroupId = WEAPON_GROUP
       })
       root.parent = camera
       root.position = WEAPON_OFFSET.clone()
       root.rotation = WEAPON_ROTATION.clone()
       meshRef.current = root
-    })
+    }
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!document.pointerLockElement) return
@@ -126,7 +121,7 @@ export const WeaponManager = ({ room }: Props) => {
       cancelled = true
       recoilHandler()
       document.removeEventListener('mousemove', handleMouseMove)
-      meshRef.current?.dispose()
+      instances.rootNodes.forEach((n) => n.dispose())
       meshRef.current = null
       shotPoolRef.current.forEach((s) => s.dispose())
       shotPoolRef.current = []

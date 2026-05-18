@@ -11,7 +11,13 @@ import {
 import type { Room } from '@colyseus/sdk'
 import type { InputState } from '@/hooks/useInput.ts'
 import { useTickLoop } from '@/hooks/useTickLoop.ts'
-import { applyMovement } from '@/game/movement.ts'
+import {
+  BODY_Y_OFFSET,
+  ClientPhysics,
+  initRapier,
+  type MeshGeometry,
+  type ColliderDescriptor,
+} from '@/game/physicsClient.ts'
 
 interface Props {
   room: Room
@@ -21,9 +27,8 @@ interface Props {
 }
 
 const HEIGHT = 1.7
-const BODY_Y_OFFSET = 0.85
-const RECONCILE_LERP = 0.05
-const TICK_RATE = 64
+const EYE_OVER_BODY = HEIGHT - BODY_Y_OFFSET
+const TICK_RATE = 60
 
 export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   const scene = useScene()
@@ -34,14 +39,10 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   const roomRef = useRef(room)
   roomRef.current = room
 
-  const localPos = useRef({ x: player.x, y: player.y, z: player.z })
-  const localVel = useRef({ x: 0, z: 0 })
+  const physicsRef = useRef<ClientPhysics | null>(null)
 
   useEffect(() => {
     if (!scene) return
-
-    localPos.current = { x: player.x, y: player.y, z: player.z }
-    localVel.current = { x: 0, z: 0 }
 
     const canvas = scene.getEngine().getRenderingCanvas()!
     const camera = new FreeCamera(
@@ -97,7 +98,30 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
     debugMesh.isVisible = false
     debugMeshRef.current = debugMesh
 
+    let cancelled = false
+    let unsubscribe: (() => void) | null = null
+
+    initRapier().then(() => {
+      if (cancelled) return
+      const physics = new ClientPhysics()
+      physicsRef.current = physics
+      physics.createPlayerBody(player.x, player.y, player.z)
+
+      unsubscribe = roomRef.current.onMessage(
+        'debugMapMesh',
+        (data: { geometries: MeshGeometry[]; colliders: ColliderDescriptor[] }) => {
+          if (cancelled) return
+          physics.loadColliders(data.geometries, data.colliders)
+        }
+      )
+      roomRef.current.send('requestDebugMesh')
+    })
+
     return () => {
+      cancelled = true
+      unsubscribe?.()
+      physicsRef.current?.dispose()
+      physicsRef.current = null
       canvas.removeEventListener('click', requestLock)
       document.removeEventListener('mousedown', handleMouseDown)
       document.removeEventListener('mouseup', handleMouseUp)
@@ -112,49 +136,51 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   useBeforeRender(() => {
     const camera = cameraRef.current
     const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
-    if (!camera || !p || !scene) return
+    if (!camera || !p) return
 
     if (p.state === 'dead') {
-      camera.position.x = p.x
-      camera.position.y = p.headY
-      camera.position.z = p.z
+      camera.position.set(p.x, p.headY, p.z)
       return
     }
 
-    localPos.current.y = p.y
-    localPos.current.x += (p.x - localPos.current.x) * RECONCILE_LERP
-    localPos.current.z += (p.z - localPos.current.z) * RECONCILE_LERP
+    const physics = physicsRef.current
+    if (physics?.playerBody && physics.hasColliders) {
+      physics.reconcile(p.x, p.y, p.z)
+      const bodyPos = physics.getBodyPosition()!
+      camera.position.x = bodyPos.x
+      camera.position.y = bodyPos.y + EYE_OVER_BODY
+      camera.position.z = bodyPos.z
 
-    camera.position.x = localPos.current.x
-    camera.position.y = localPos.current.y + HEIGHT
-    camera.position.z = localPos.current.z
-
-    const debug = debugMeshRef.current
-    if (debug) {
-      debug.isVisible = isDebugRef.current
-      if (isDebugRef.current) {
-        debug.position.set(p.x, p.y + BODY_Y_OFFSET, p.z)
+      const debug = debugMeshRef.current
+      if (debug) {
+        debug.isVisible = isDebugRef.current
+        if (isDebugRef.current) {
+          debug.position.set(p.x, p.y + BODY_Y_OFFSET, p.z)
+        }
       }
+      return
     }
+
+    // Fallback avant que la physique soit prête
+    camera.position.set(p.x, p.y + HEIGHT, p.z)
   })
 
   useTickLoop(() => {
     const camera = cameraRef.current
     if (!camera) return
 
-    applyMovement(localVel.current, inputRef.current, camera.rotation.y)
-    localPos.current.x += localVel.current.x
-    localPos.current.z += localVel.current.z
+    const physics = physicsRef.current
+    if (physics) physics.step(inputRef.current, camera.rotation.y)
 
     roomRef.current.send('playerInput', {
       forward: inputRef.current.forward,
-      back: inputRef.current.back,
-      left: inputRef.current.left,
-      right: inputRef.current.right,
-      sprint: inputRef.current.sprint,
-      crouch: inputRef.current.crouch,
-      jump: inputRef.current.jump,
-      yaw: camera.rotation.y,
+      back:    inputRef.current.back,
+      left:    inputRef.current.left,
+      right:   inputRef.current.right,
+      sprint:  inputRef.current.sprint,
+      crouch:  inputRef.current.crouch,
+      jump:    inputRef.current.jump,
+      yaw:   camera.rotation.y,
       pitch: camera.rotation.x,
     })
   }, TICK_RATE)
