@@ -6,8 +6,9 @@ const CAPSULE_HALF_HEIGHT = 0.6
 const CAPSULE_RADIUS = 0.25
 export const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS
 const VEL_SCALE = 64
-const JUMP_VEL = 6
-const GROUND_VEL_THRESHOLD = 0.5
+const JUMP_VEL = 4
+// Marge sous les pieds pour considérer le joueur au sol (ray vers le bas).
+const GROUND_RAY_MARGIN = 0.5
 const GRAVITY = { x: 0, y: -9.81, z: 0 }
 
 // Au-delà de 4m de drift on snap, sinon on lerp doucement chaque frame
@@ -118,17 +119,41 @@ export class ClientPhysics {
     applyMovement(this.velocity, inputs, yaw)
 
     const linvel = this.playerBody.linvel()
-    const grounded = Math.abs(linvel.y) < GROUND_VEL_THRESHOLD
-    this.playerBody.setLinvel(
-      {
-        x: this.velocity.x * VEL_SCALE,
-        y: inputs.jump && grounded ? JUMP_VEL : linvel.y,
-        z: this.velocity.z * VEL_SCALE,
-      },
-      true
-    )
+    const grounded = this.isGrounded()
+    if (grounded) {
+      // Au sol : déplacement piloté par les inputs (+ saut éventuel).
+      this.playerBody.setLinvel(
+        {
+          x: this.velocity.x * VEL_SCALE,
+          y: inputs.jump ? JUMP_VEL : linvel.y,
+          z: this.velocity.z * VEL_SCALE,
+        },
+        true
+      )
+    }
+    // En l'air : on garde la vélocité → momentum du saut conservé.
 
     this.world.step()
+  }
+
+  // Au sol : raycast vers le bas pour détecter le contact avec le sol.
+  isGrounded(): boolean {
+    if (!this.playerBody) return false
+    const t = this.playerBody.translation()
+    const ray = new RAPIER.Ray(
+      { x: t.x, y: t.y, z: t.z },
+      { x: 0, y: -1, z: 0 }
+    )
+    const hit = this.world.castRay(
+      ray,
+      BODY_Y_OFFSET + GROUND_RAY_MARGIN,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      this.playerBody
+    )
+    return hit !== null
   }
 
   // Le serveur envoie player.{x,y,z} (position des pieds). On compare au centre du body.

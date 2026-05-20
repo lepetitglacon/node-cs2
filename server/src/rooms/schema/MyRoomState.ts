@@ -1,8 +1,9 @@
-import {MapSchema, Schema, type } from "@colyseus/schema";
+import {MapSchema, ArraySchema, Schema, type } from "@colyseus/schema";
 
 export type PlayerState = 'alive' | 'dead'
 export type Team = 'team1' | 'team2'
 export type GameMode = 'matchmaking_10v10' | 'sd_5v5'
+export type QuestStep = 'fetch_weapon' | 'go_to_stand' | 'shoot_targets' | 'done'
 export type MoveState =
   | 'idle'
   | 'walk_front' | 'walk_back' | 'walk_left' | 'walk_right'
@@ -31,10 +32,26 @@ export class Player extends Schema {
   @type("number") deaths: number = 0;
   // Timestamp (ms) auquel l'auto-respawn aura lieu. 0 = pas en attente.
   @type("number") respawnAt: number = 0;
+  // Armes possédées (vide au spawn, l'AK s'ajoute via la quête).
+  @type(["string"]) weapons = new ArraySchema<string>();
+  @type("string") questStep: QuestStep = 'fetch_weapon';
+  @type("number") score: number = 0;
+  // true quand le joueur touche le sol (empêche le saut infini).
+  @type("boolean") grounded: boolean = false;
+}
+
+// Cible d'entraînement : cube côté serveur, modèle soldat côté client.
+export class Target extends Schema {
+  @type("number") x: number = 0;
+  @type("number") y: number = 0;
+  @type("number") z: number = 0;
+  // false = touchée, le client joue l'animation de mort.
+  @type("boolean") active: boolean = true;
 }
 
 export class MyRoomState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>()
+  @type({ map: Target }) targets = new MapSchema<Target>()
   @type("string") mapId: string = "test2";
   @type("string") mode: GameMode = 'matchmaking_10v10';
 }

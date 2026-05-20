@@ -1,7 +1,7 @@
 import { Room, Client, CloseCode } from "colyseus";
-import { MyRoomState, Player } from "./schema/MyRoomState.js";
+import { MyRoomState, Player, Target } from "./schema/MyRoomState.js";
 import { applyMovement } from "../game/movement.js";
-import { loadMap, type MeshGeometry, type ColliderDescriptor, type SpawnPoints } from "../game/mapLoader.js";
+import { loadMap, type MeshGeometry, type ColliderDescriptor, type SpawnPoints, type SpawnPoint } from "../game/mapLoader.js";
 import { createStrategy, type MatchStrategy } from "../game/matchStrategy.js";
 import RAPIER from "@dimforge/rapier3d-compat";
 
@@ -10,6 +10,9 @@ const CAPSULE_RADIUS = 0.25;
 const BODY_Y_OFFSET = CAPSULE_HALF_HEIGHT + CAPSULE_RADIUS;
 const EYE_HEIGHT = 1.7; // Doit matcher PlayerCamera.HEIGHT côté client, sinon les bullets partent à une hauteur ≠ de la caméra → impacts décalés sous le viseur
 const MAX_RAY_DIST = 50;
+const JUMP_VEL = 4;
+// Marge sous les pieds pour considérer le joueur au sol (ray vers le bas).
+const GROUND_RAY_MARGIN = 0.50;
 const SHOOT_COOLDOWN = 100;
 const BULLET_DAMAGE = 33;
 const BURST_RESET_MS = 450;
@@ -18,6 +21,19 @@ const RELOAD_TIME_MS = 2500;
 const MUZZLE_FORWARD = 0.45;
 const MUZZLE_RIGHT = 0.12;
 const MUZZLE_DOWN = 0.18;
+
+// --- Quête d'entraînement ---
+const FETCH_RADIUS = 1.6;
+const STAND_RADIUS = 1.0;
+const QUEST_SESSION_MS = 60_000;
+const TARGET_SPAWN_MIN_MS = 500;
+const TARGET_SPAWN_MAX_MS = 3000;
+const TARGET_POINTS = 100;
+// Délai avant retrait d'une cible touchée, le temps que le client joue la mort.
+const TARGET_DESPAWN_MS = 2500;
+const TARGET_HALF_X = 0.35;
+const TARGET_HALF_Y = 0.9;
+const TARGET_HALF_Z = 0.35;
 
 // Offsets cumulatifs du pattern AK-47 (pitch = recul vertical, yaw = dérive horizontale)
 const AK47_PATTERN: Array<{ pitch: number; yaw: number }> = [
@@ -84,6 +100,23 @@ export class MyRoom extends Room {
   playerIsShooting = new Map<string, boolean>();
   playerShotPending = new Map<string, { yaw: number; pitch: number } | null>();
 
+  // Quête d'entraînement
+  fetchAk: SpawnPoint | null = null;
+  stands: SpawnPoint[] = [];
+  targetSpots: SpawnPoint[] = [];
+  sessionStarted = false;
+  sessionActive = false;
+  sessionEndsAt = 0;
+  nextTargetSpawnAt = 0;
+  nextTargetId = 0;
+  targetBodies = new Map<string, RAPIER.RigidBody>();
+  targetColliderOwners = new Map<number, string>();
+  targetSpotIndex = new Map<string, number>();
+  occupiedSpots = new Set<number>();
+  targetDespawnAt = new Map<string, number>();
+  // Colliders de murs invisibles : ignorés par le raycast de tir.
+  invisibleWallHandles = new Set<number>();
+
   async onCreate(options: any) {
     await RAPIER.init();
 
@@ -96,6 +129,10 @@ export class MyRoom extends Room {
     this.mapGeometries = map.geometries;
     this.mapColliders = map.colliders;
     this.spawns = map.spawns;
+    this.fetchAk = map.fetchAk;
+    this.stands = map.stands;
+    this.targetSpots = map.targetSpots;
+    this.invisibleWallHandles = new Set(map.invisibleColliderHandles);
 
     await this.setMetadata({
       mapId: this.state.mapId,
@@ -195,12 +232,15 @@ export class MyRoom extends Room {
       if (player.moveState !== newMoveState) player.moveState = newMoveState;
 
       const linvel = body.linvel();
+      const grounded = this.isGrounded(body);
+      player.grounded = grounded;
 
-      if (input.jump && Math.abs(linvel.y) < 0.5) {
-        body.setLinvel({ x: vel.x * 64, y: 6, z: vel.z * 64 }, true);
-      } else {
-        body.setLinvel({ x: vel.x * 64, y: linvel.y, z: vel.z * 64 }, true);
+      if (grounded) {
+        // Au sol : déplacement piloté par les inputs (+ saut éventuel).
+        const y = input.jump ? JUMP_VEL : linvel.y;
+        body.setLinvel({ x: vel.x * 64, y, z: vel.z * 64 }, true);
       }
+      // En l'air : on ne touche pas à la vélocité → le momentum du saut est conservé.
 
       const { yaw, pitch } = input;
       const cy = Math.cos(yaw / 2), sy = Math.sin(yaw / 2);
@@ -212,7 +252,7 @@ export class MyRoom extends Room {
 
       const isShooting = this.playerIsShooting.get(sessionId) ?? false;
       const pending = this.playerShotPending.get(sessionId) ?? null;
-      if ((pending || isShooting) && !player.isReloading && player.bullets > 0) {
+      if ((pending || isShooting) && !player.isReloading && player.bullets > 0 && player.weapons.length > 0) {
         const lastShot = this.playerLastShot.get(sessionId) ?? 0;
         if (now - lastShot >= SHOOT_COOLDOWN) {
           if (pending) this.playerShotPending.set(sessionId, null);
@@ -234,6 +274,25 @@ export class MyRoom extends Room {
       player.z = pos.z;
       player.headY = pos.y + (EYE_HEIGHT - BODY_Y_OFFSET);
     });
+
+    this.questUpdate(now);
+  }
+
+  // Au sol : ray vers le bas depuis le centre du body + vitesse verticale non montante
+  // (évite le re-saut à l'apex où linvel.y ≈ 0 mais le joueur est en l'air).
+  private isGrounded(body: RAPIER.RigidBody): boolean {
+    const t = body.translation();
+    const ray = new RAPIER.Ray({ x: t.x, y: t.y, z: t.z }, { x: 0, y: -1, z: 0 });
+    const hit = this.world.castRay(
+      ray,
+      BODY_Y_OFFSET + GROUND_RAY_MARGIN,
+      true,
+      undefined,
+      undefined,
+      undefined,
+      body,
+    );
+    return hit !== null;
   }
 
   private fireShot(sessionId: string, player: Player, body: RAPIER.RigidBody, yaw: number, pitch: number, now: number) {
@@ -256,7 +315,16 @@ export class MyRoom extends Room {
     const muzzleY = headY + dirY * MUZZLE_FORWARD - MUZZLE_DOWN;
     const muzzleZ = pos.z + dirZ * MUZZLE_FORWARD + rgtZ * MUZZLE_RIGHT;
     const ray = new RAPIER.Ray({ x: pos.x, y: headY, z: pos.z }, { x: dirX, y: dirY, z: dirZ });
-    const hit = this.world.castRayAndGetNormal(ray, MAX_RAY_DIST, false, undefined, undefined, undefined, body);
+    const hit = this.world.castRayAndGetNormal(
+      ray,
+      MAX_RAY_DIST,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      body,
+      (collider: RAPIER.Collider) => !this.invisibleWallHandles.has(collider.handle),
+    );
 
     let hitOwnerId: string | undefined;
     let hitData: { x: number; y: number; z: number; nx: number; ny: number; nz: number; onPlayer: boolean } | null = null;
@@ -278,6 +346,17 @@ export class MyRoom extends Room {
           target.health = Math.max(0, target.health - BULLET_DAMAGE);
           if (target.health === 0) {
             this.killPlayer(hitOwnerId, target, player, now);
+          }
+        }
+      } else {
+        const targetId = this.targetColliderOwners.get(hit.collider.handle);
+        if (targetId && player.questStep === 'shoot_targets') {
+          const questTarget = this.state.targets.get(targetId);
+          if (questTarget && questTarget.active) {
+            questTarget.active = false;
+            this.detachTargetCollider(targetId);
+            this.targetDespawnAt.set(targetId, now + TARGET_DESPAWN_MS);
+            player.score += TARGET_POINTS;
           }
         }
       }
@@ -327,6 +406,131 @@ export class MyRoom extends Room {
     this.playerVelocities.set(sessionId, { x: 0, z: 0 });
   }
 
+  private horizDistSq(ax: number, az: number, bx: number, bz: number): number {
+    const dx = ax - bx, dz = az - bz;
+    return dx * dx + dz * dz;
+  }
+
+  private questUpdate(now: number) {
+    this.state.players.forEach((player) => {
+      if (player.questStep === 'fetch_weapon') {
+        if (
+          this.fetchAk &&
+          this.horizDistSq(player.x, player.z, this.fetchAk.x, this.fetchAk.z) <
+            FETCH_RADIUS * FETCH_RADIUS
+        ) {
+          if (!player.weapons.includes('ak47')) player.weapons.push('ak47');
+          player.bullets = this.strategy.magazineSize;
+          player.totalAmmo = this.strategy.maxTotalAmmo;
+          player.questStep = 'go_to_stand';
+        }
+      } else if (player.questStep === 'go_to_stand') {
+        const onStand = this.stands.some(
+          (s) =>
+            this.horizDistSq(player.x, player.z, s.x, s.z) <
+            STAND_RADIUS * STAND_RADIUS,
+        );
+        if (onStand) {
+          player.questStep = 'shoot_targets';
+          this.startSession(now);
+        }
+      }
+    });
+
+    if (this.sessionActive) {
+      if (now >= this.sessionEndsAt) {
+        this.endSession();
+      } else if (now >= this.nextTargetSpawnAt) {
+        this.spawnTarget();
+        this.scheduleNextSpawn(now);
+      }
+    }
+
+    this.targetDespawnAt.forEach((at, id) => {
+      if (now >= at) this.removeTarget(id);
+    });
+  }
+
+  private startSession(now: number) {
+    if (this.sessionStarted) return;
+    this.sessionStarted = true;
+    this.sessionActive = true;
+    this.sessionEndsAt = now + QUEST_SESSION_MS;
+    this.scheduleNextSpawn(now);
+  }
+
+  private scheduleNextSpawn(now: number) {
+    const delay =
+      TARGET_SPAWN_MIN_MS +
+      Math.random() * (TARGET_SPAWN_MAX_MS - TARGET_SPAWN_MIN_MS);
+    this.nextTargetSpawnAt = now + delay;
+  }
+
+  private spawnTarget() {
+    const freeIndices: number[] = [];
+    for (let i = 0; i < this.targetSpots.length; i++) {
+      if (!this.occupiedSpots.has(i)) freeIndices.push(i);
+    }
+    if (freeIndices.length === 0) return;
+
+    const idx = freeIndices[Math.floor(Math.random() * freeIndices.length)];
+    const spot = this.targetSpots[idx];
+    const id = `t${this.nextTargetId++}`;
+
+    const target = new Target();
+    target.x = spot.x;
+    target.y = spot.y;
+    target.z = spot.z;
+    target.active = true;
+    this.state.targets.set(id, target);
+
+    const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(
+      spot.x,
+      spot.y + TARGET_HALF_Y,
+      spot.z,
+    );
+    const body = this.world.createRigidBody(bodyDesc);
+    const collider = this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(TARGET_HALF_X, TARGET_HALF_Y, TARGET_HALF_Z),
+      body,
+    );
+    this.targetBodies.set(id, body);
+    this.targetColliderOwners.set(collider.handle, id);
+    this.targetSpotIndex.set(id, idx);
+    this.occupiedSpots.add(idx);
+  }
+
+  // Retire le collider physique (plus touchable) sans retirer le Target du state.
+  private detachTargetCollider(id: string) {
+    const body = this.targetBodies.get(id);
+    if (!body) return;
+    const collider = body.collider(0);
+    if (collider) this.targetColliderOwners.delete(collider.handle);
+    this.world.removeRigidBody(body);
+    this.targetBodies.delete(id);
+  }
+
+  private removeTarget(id: string) {
+    this.detachTargetCollider(id);
+    const idx = this.targetSpotIndex.get(id);
+    if (idx !== undefined) {
+      this.occupiedSpots.delete(idx);
+      this.targetSpotIndex.delete(id);
+    }
+    this.targetDespawnAt.delete(id);
+    this.state.targets.delete(id);
+  }
+
+  private endSession() {
+    this.sessionActive = false;
+    for (const id of [...this.state.targets.keys()]) {
+      this.removeTarget(id);
+    }
+    this.state.players.forEach((player) => {
+      if (player.questStep === 'shoot_targets') player.questStep = 'done';
+    });
+  }
+
   onAuth(client: Client, options: any, context: any) {
     return true;
   }
@@ -354,8 +558,9 @@ export class MyRoom extends Room {
     player.y = spawn.y;
     player.z = spawn.z;
     player.health = this.strategy.startingHealth;
-    player.bullets = this.strategy.magazineSize;
-    player.totalAmmo = this.strategy.maxTotalAmmo;
+    // Pas d'arme par défaut : le joueur doit la récupérer via la quête.
+    player.bullets = 0;
+    player.totalAmmo = 0;
 
     this.playerBodies.set(client.sessionId, body);
     this.playerVelocities.set(client.sessionId, { x: 0, z: 0 });

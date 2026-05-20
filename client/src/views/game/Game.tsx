@@ -10,10 +10,12 @@ import { OtherPlayer } from './OtherPlayer.tsx'
 import { MapLoader } from './MapLoader.tsx'
 import { DebugMapMesh } from './DebugMapMesh.tsx'
 import { EnvironmentSetup } from './EnvironmentSetup.tsx'
+import { TargetEntity } from './TargetEntity.tsx'
 import { GameOverlay } from '@/components/GameOverlay.tsx'
 import { DeathScreen } from '@/components/DeathScreen.tsx'
 import { LoadingScreen } from '@/components/LoadingScreen.tsx'
 import { LobbyScreen } from '@/components/LobbyScreen.tsx'
+import { QuestMessage } from '@/components/QuestMessage.tsx'
 import { preloadAssets } from '@/game/assets/preloader.ts'
 
 interface PreloaderProps {
@@ -61,6 +63,25 @@ export const Game = () => {
         <GameOverlay>
           <DeathScreen />
         </GameOverlay>
+      )}
+      {playing && <QuestMessage />}
+      {playing && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 24,
+            right: 24,
+            zIndex: 10,
+            color: 'white',
+            fontFamily: 'monospace',
+            fontSize: 18,
+            fontWeight: 'bold',
+            pointerEvents: 'none',
+            textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+          }}
+        >
+          SCORE: {currentPlayer?.score ?? 0}
+        </div>
       )}
       {playing && (
         <div
@@ -134,13 +155,18 @@ export const Game = () => {
             <>
               <MapLoader mapId={mapId} />
               <DebugMapMesh room={room!} isDebug={isDebug} />
+              {Object.keys(state?.targets ?? {}).map((tid) => (
+                <TargetEntity key={tid} room={room!} tid={tid} />
+              ))}
               <PlayerCamera
                 room={room!}
                 player={currentPlayer!}
                 isDebug={isDebug}
                 inputRef={inputRef}
               />
-              <WeaponManager room={room!} />
+              {currentPlayer?.weapons?.includes('ak47') && (
+                <WeaponManager room={room!} />
+              )}
               <ImpactEffects room={room!} />
               {otherPlayers &&
                 Object.entries(otherPlayers).map(([pid]) =>
@@ -162,7 +188,10 @@ export const Game = () => {
           progress={progress}
           ready={assetsReady}
           mapName={mapId}
-          onPlay={() => setUserPlayed(true)}
+          onPlay={() => {
+            setUserPlayed(true)
+            document.getElementById('babylon-js')?.requestPointerLock()
+          }}
         />
       )}
     </div>

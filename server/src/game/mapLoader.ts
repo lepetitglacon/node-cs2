@@ -25,6 +25,12 @@ function matchesSpawnPrefix(nodeName: string, team: 't1' | 't2'): boolean {
     || lower.startsWith(`${prefix}_`);
 }
 
+// Empties de quête : nom exact "base" ou suffixé "base.001", etc.
+function matchesName(nodeName: string, base: string): boolean {
+  const lower = nodeName.toLowerCase();
+  return lower === base || lower.startsWith(`${base}.`);
+}
+
 function transformPositions(raw: Float32Array, mat: number[]): Float32Array {
   const out = new Float32Array(raw.length);
   for (let i = 0; i < raw.length; i += 3) {
@@ -53,18 +59,18 @@ function computeBounds(positions: Float32Array) {
   };
 }
 
+// Retourne le handle du collider créé (undefined si shape "none").
 function addCollider(
   world: RAPIER.World,
   shapeType: ShapeType,
   positions: Float32Array,
   indices: Uint32Array,
-): void {
-  if (shapeType === "none") return;
+): number | undefined {
+  if (shapeType === "none") return undefined;
 
   if (shapeType === "trimesh") {
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    world.createCollider(RAPIER.ColliderDesc.trimesh(positions, indices), body);
-    return;
+    return world.createCollider(RAPIER.ColliderDesc.trimesh(positions, indices), body).handle;
   }
 
   const { center, half } = computeBounds(positions);
@@ -73,15 +79,13 @@ function addCollider(
 
   switch (shapeType) {
     case "cuboid":
-      world.createCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z), body);
-      break;
+      return world.createCollider(RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z), body).handle;
     case "cylinder":
-      world.createCollider(RAPIER.ColliderDesc.cylinder(half.y, Math.max(half.x, half.z)), body);
-      break;
+      return world.createCollider(RAPIER.ColliderDesc.cylinder(half.y, Math.max(half.x, half.z)), body).handle;
     case "ball":
-      world.createCollider(RAPIER.ColliderDesc.ball(Math.max(half.x, half.y, half.z)), body);
-      break;
+      return world.createCollider(RAPIER.ColliderDesc.ball(Math.max(half.x, half.y, half.z)), body).handle;
   }
+  return undefined;
 }
 
 export interface MeshGeometry {
@@ -110,6 +114,12 @@ export interface MapData {
   geometries: MeshGeometry[];
   colliders: ColliderDescriptor[];
   spawns: SpawnPoints;
+  // Points de quête (empties Blender).
+  fetchAk: SpawnPoint | null;
+  stands: SpawnPoint[];
+  targetSpots: SpawnPoint[];
+  // Handles des colliders de murs invisibles : le raycast de tir doit les ignorer.
+  invisibleColliderHandles: number[];
 }
 
 export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapData> {
@@ -122,6 +132,10 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
   const geometries: MeshGeometry[] = [];
   const colliders: ColliderDescriptor[] = [];
   const spawns: SpawnPoints = { team1: [], team2: [] };
+  let fetchAk: SpawnPoint | null = null;
+  const stands: SpawnPoint[] = [];
+  const targetSpots: SpawnPoint[] = [];
+  const invisibleColliderHandles: number[] = [];
 
   for (const node of document.getRoot().listNodes()) {
     const mat = node.getMatrix();
@@ -135,6 +149,20 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
     }
     if (matchesSpawnPrefix(nodeName, 't2')) {
       spawns.team2.push({ x: mat[12], y: mat[13], z: -mat[14] });
+      continue;
+    }
+
+    // Empties de quête.
+    if (matchesName(nodeName, 'fetch_ak')) {
+      fetchAk = { x: mat[12], y: mat[13], z: -mat[14] };
+      continue;
+    }
+    if (matchesName(nodeName, 'stand')) {
+      stands.push({ x: mat[12], y: mat[13], z: -mat[14] });
+      continue;
+    }
+    if (matchesName(nodeName, 'target')) {
+      targetSpots.push({ x: mat[12], y: mat[13], z: -mat[14] });
       continue;
     }
 
@@ -161,7 +189,10 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
         for (let i = 0; i < indices.length; i++) indices[i] = i;
       }
 
-      addCollider(world, shapeType, positions, indices);
+      const colliderHandle = addCollider(world, shapeType, positions, indices);
+      if (colliderHandle !== undefined && nodeName.split('.')[0] === 'Invisible') {
+        invisibleColliderHandles.push(colliderHandle);
+      }
 
       if (shapeType === "trimesh") {
         geometries.push({
@@ -179,5 +210,5 @@ export async function loadMap(world: RAPIER.World, mapId: string): Promise<MapDa
     }
   }
 
-  return { geometries, colliders, spawns };
+  return { geometries, colliders, spawns, fetchAk, stands, targetSpots, invisibleColliderHandles };
 }
