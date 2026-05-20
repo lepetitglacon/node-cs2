@@ -10,6 +10,8 @@ export const MESH_SHAPE_MAP: Record<string, ShapeType> = {
   Plane: "trimesh",
   Weird: "trimesh",
   Cube: "cuboid",
+  // Murs invisibles : collider cuboid côté serveur, masqués côté client.
+  Invisible: "cuboid",
 };
 
 // Convention de nommage Blender pour les spawn points :

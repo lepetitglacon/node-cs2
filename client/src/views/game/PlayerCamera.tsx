@@ -28,7 +28,7 @@ interface Props {
 
 const HEIGHT = 1.7
 const EYE_OVER_BODY = HEIGHT - BODY_Y_OFFSET
-const TICK_RATE = 60
+const NET_TICK_RATE = 60
 
 export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   const scene = useScene()
@@ -40,6 +40,7 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
   roomRef.current = room
 
   const physicsRef = useRef<ClientPhysics | null>(null)
+  const lastTimeRef = useRef(0)
 
   useEffect(() => {
     if (!scene) return
@@ -60,6 +61,8 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
     camera.attachControl(canvas, true)
     scene.activeCamera = camera
     cameraRef.current = camera
+
+    lastTimeRef.current = performance.now()
 
     const requestLock = () => canvas.requestPointerLock()
     canvas.addEventListener('click', requestLock)
@@ -133,45 +136,10 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
     }
   }, [scene])
 
-  useBeforeRender(() => {
-    const camera = cameraRef.current
-    const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
-    if (!camera || !p) return
-
-    if (p.state === 'dead') {
-      camera.position.set(p.x, p.headY, p.z)
-      return
-    }
-
-    const physics = physicsRef.current
-    if (physics?.playerBody && physics.hasColliders) {
-      physics.reconcile(p.x, p.y, p.z)
-      const bodyPos = physics.getBodyPosition()!
-      camera.position.x = bodyPos.x
-      camera.position.y = bodyPos.y + EYE_OVER_BODY
-      camera.position.z = bodyPos.z
-
-      const debug = debugMeshRef.current
-      if (debug) {
-        debug.isVisible = isDebugRef.current
-        if (isDebugRef.current) {
-          debug.position.set(p.x, p.y + BODY_Y_OFFSET, p.z)
-        }
-      }
-      return
-    }
-
-    // Fallback avant que la physique soit prête
-    camera.position.set(p.x, p.y + HEIGHT, p.z)
-  })
-
+  // Réseau pur : envoi inputs à 60 Hz (indépendant du rendu)
   useTickLoop(() => {
     const camera = cameraRef.current
     if (!camera) return
-
-    const physics = physicsRef.current
-    if (physics) physics.step(inputRef.current, camera.rotation.y)
-
     roomRef.current.send('playerInput', {
       forward: inputRef.current.forward,
       back:    inputRef.current.back,
@@ -183,7 +151,47 @@ export const PlayerCamera = ({ room, player, isDebug, inputRef }: Props) => {
       yaw:   camera.rotation.y,
       pitch: camera.rotation.x,
     })
-  }, TICK_RATE)
+  }, NET_TICK_RATE)
+
+  // Physique à dt variable + lerp serveur, chaque frame
+  useBeforeRender(() => {
+    const camera = cameraRef.current
+    const p = roomRef.current.state?.players?.get(roomRef.current.sessionId)
+    if (!camera || !p) return
+
+    if (p.state === 'dead') {
+      camera.position.set(p.x, p.headY, p.z)
+      return
+    }
+
+    const now = performance.now()
+    const dt = (now - lastTimeRef.current) / 1000
+    lastTimeRef.current = now
+
+    const physics = physicsRef.current
+    if (!physics?.playerBody || !physics.hasColliders) {
+      camera.position.set(p.x, p.y + HEIGHT, p.z)
+      return
+    }
+
+    // 1 step physique par frame, dt = temps réel écoulé
+    physics.step(inputRef.current, camera.rotation.y, dt)
+    // Lerp continu vers la position serveur (taux indépendant du fps)
+    physics.reconcile(p.x, p.y, p.z, dt)
+
+    const pos = physics.getBodyPosition()!
+    camera.position.x = pos.x
+    camera.position.y = pos.y + EYE_OVER_BODY
+    camera.position.z = pos.z
+
+    const debug = debugMeshRef.current
+    if (debug) {
+      debug.isVisible = isDebugRef.current
+      if (isDebugRef.current) {
+        debug.position.set(p.x, p.y + BODY_Y_OFFSET, p.z)
+      }
+    }
+  })
 
   return null
 }

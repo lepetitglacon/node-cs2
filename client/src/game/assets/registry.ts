@@ -1,5 +1,5 @@
-import type { AssetContainer } from '@babylonjs/core'
-import type { MeshKey, SoundKey } from './manifest.ts'
+import type { AssetContainer, Texture } from '@babylonjs/core'
+import type { EnvKey, MeshKey, SoundKey } from './manifest.ts'
 
 // Singleton qui détient tous les assets décodés une fois pour toutes.
 // Les composants consomment de manière synchrone via getMesh/getSound — pas de race
@@ -7,6 +7,7 @@ import type { MeshKey, SoundKey } from './manifest.ts'
 class AssetRegistry {
   private meshes = new Map<string, AssetContainer>()
   private sounds = new Map<string, ArrayBuffer>()
+  private envTextures = new Map<string, Texture>()
   private ready = false
 
   setMesh(key: string, container: AssetContainer): void {
@@ -16,6 +17,11 @@ class AssetRegistry {
 
   setSound(key: SoundKey, buffer: ArrayBuffer): void {
     this.sounds.set(key, buffer)
+  }
+
+  setEnvTexture(key: EnvKey | string, texture: Texture): void {
+    this.envTextures.get(key)?.dispose()
+    this.envTextures.set(key, texture)
   }
 
   getMesh(key: MeshKey | string): AssetContainer {
@@ -31,8 +37,18 @@ class AssetRegistry {
     return b.slice(0)
   }
 
+  getEnvTexture(key: EnvKey | string): Texture {
+    const t = this.envTextures.get(key)
+    if (!t) throw new Error(`[AssetRegistry] env texture "${key}" non préchargé`)
+    return t
+  }
+
   hasMesh(key: string): boolean {
     return this.meshes.has(key)
+  }
+
+  hasEnvTexture(key: string): boolean {
+    return this.envTextures.has(key)
   }
 
   markReady(): void {
@@ -47,6 +63,8 @@ class AssetRegistry {
     this.meshes.forEach((c) => c.dispose())
     this.meshes.clear()
     this.sounds.clear()
+    this.envTextures.forEach((t) => t.dispose())
+    this.envTextures.clear()
     this.ready = false
   }
 }

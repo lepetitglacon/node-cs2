@@ -20,6 +20,13 @@ export const SOUND_ASSETS = {
 export type MeshKey = keyof typeof MESH_ASSETS
 export type SoundKey = keyof typeof SOUND_ASSETS
 
+// Environnement HDR pour l'éclairage et les réflexions
+export const ENV_ASSETS = {
+  grasslands_sunset: '/assets/map/grasslands_sunset_1k.hdr',
+} as const
+
+export type EnvKey = keyof typeof ENV_ASSETS
+
 // La map est dynamique (dépend de l'état de la room), donc préchargée à part.
 export const mapMeshUrl = (mapId: string) => `/assets/map/${mapId}.glb`
 export const mapMeshKey = (mapId: string) => `map_${mapId}`

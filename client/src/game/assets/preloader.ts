@@ -1,10 +1,12 @@
-import { LoadAssetContainerAsync, type Scene } from '@babylonjs/core'
+import { LoadAssetContainerAsync, Texture, type Scene } from '@babylonjs/core'
 import {
   ASSET_BASE_URL,
+  ENV_ASSETS,
   MESH_ASSETS,
   SOUND_ASSETS,
   mapMeshKey,
   mapMeshUrl,
+  type EnvKey,
   type SoundKey,
 } from './manifest.ts'
 import { assetRegistry } from './registry.ts'
@@ -35,6 +37,18 @@ async function preloadSound(key: SoundKey, url: string): Promise<void> {
   assetRegistry.setSound(key, buf)
 }
 
+async function preloadEnvTexture(
+  scene: Scene,
+  key: EnvKey | string,
+  url: string,
+): Promise<void> {
+  if (assetRegistry.hasEnvTexture(key)) return
+  const texture = new Texture(`${ASSET_BASE_URL}${url}`, scene)
+  texture.coordinatesMode = Texture.EQUIRECTANGULAR_MODE
+  texture.coordinatesIndex = 0
+  assetRegistry.setEnvTexture(key, texture)
+}
+
 export async function preloadAssets(
   scene: Scene,
   mapId: string,
@@ -42,7 +56,8 @@ export async function preloadAssets(
 ): Promise<void> {
   const meshEntries = Object.entries(MESH_ASSETS) as [string, string][]
   const soundEntries = Object.entries(SOUND_ASSETS) as [SoundKey, string][]
-  const total = meshEntries.length + soundEntries.length + 1 // +1 pour la map
+  const envEntries = Object.entries(ENV_ASSETS) as [EnvKey, string][]
+  const total = meshEntries.length + soundEntries.length + envEntries.length + 1 // +1 pour la map
   let loaded = 0
 
   const tick = () => {
@@ -55,6 +70,7 @@ export async function preloadAssets(
   await Promise.all([
     ...meshEntries.map(([key, url]) => preloadMesh(scene, key, url).then(tick)),
     ...soundEntries.map(([key, url]) => preloadSound(key, url).then(tick)),
+    ...envEntries.map(([key, url]) => preloadEnvTexture(scene, key, url).then(tick)),
     preloadMesh(scene, mapMeshKey(mapId), mapMeshUrl(mapId)).then(tick),
   ])
 

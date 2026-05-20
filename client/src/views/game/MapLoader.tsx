@@ -22,6 +22,18 @@ export const MapLoader = ({ mapId }: Props) => {
       { doNotInstantiate: true }
     )
 
+    // Murs invisibles (Invisible.XXX) : collision uniquement, jamais affichés.
+    instances.rootNodes.forEach((node) => {
+      node
+        .getChildMeshes(
+          false,
+          (m) => m.name.includes('Invisible') || m.name.includes('Plane')
+        )
+        .forEach((m) => {
+          m.isVisible = false
+        })
+    })
+
     const root = instances.rootNodes[0]
     if (root && 'rotationQuaternion' in root) {
       ;(root as { rotationQuaternion: Quaternion }).rotationQuaternion =

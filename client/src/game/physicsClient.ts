@@ -12,7 +12,13 @@ const GRAVITY = { x: 0, y: -9.81, z: 0 }
 
 // Au-delà de 4m de drift on snap, sinon on lerp doucement chaque frame
 const RECONCILE_SNAP_DIST_SQ = 16
-const RECONCILE_LERP = 0.15
+// Taux de convergence indépendant du fps : ~constante de temps en secondes
+// factor = 1 - exp(-dt * RATE). RATE=8 → ~125ms pour rattraper 63% du drift
+const RECONCILE_RATE = 10
+// Sous ce seuil on ignore le serveur et on fait confiance à la prédiction client
+// (pas de rubber-banding sur les micro-écarts dus à la latence/dt variable)
+const RECONCILE_DEADBAND = 0.05
+const RECONCILE_DEADBAND_SQ = RECONCILE_DEADBAND * RECONCILE_DEADBAND
 
 let initPromise: Promise<void> | null = null
 
@@ -28,8 +34,12 @@ export interface MeshGeometry {
 
 export interface ColliderDescriptor {
   type: 'cuboid' | 'cylinder' | 'ball'
-  cx: number; cy: number; cz: number
-  hx: number; hy: number; hz: number
+  cx: number
+  cy: number
+  cz: number
+  hx: number
+  hy: number
+  hz: number
 }
 
 export class ClientPhysics {
@@ -42,7 +52,10 @@ export class ClientPhysics {
     this.world = new RAPIER.World(GRAVITY)
   }
 
-  loadColliders(geometries: MeshGeometry[], colliders: ColliderDescriptor[] = []): void {
+  loadColliders(
+    geometries: MeshGeometry[],
+    colliders: ColliderDescriptor[] = []
+  ): void {
     geometries.forEach((geo) => {
       const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
       this.world.createCollider(
@@ -55,17 +68,30 @@ export class ClientPhysics {
     })
 
     colliders.forEach((desc) => {
-      const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(desc.cx, desc.cy, desc.cz)
+      const bodyDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(
+        desc.cx,
+        desc.cy,
+        desc.cz
+      )
       const body = this.world.createRigidBody(bodyDesc)
       switch (desc.type) {
         case 'cuboid':
-          this.world.createCollider(RAPIER.ColliderDesc.cuboid(desc.hx, desc.hy, desc.hz), body)
+          this.world.createCollider(
+            RAPIER.ColliderDesc.cuboid(desc.hx, desc.hy, desc.hz),
+            body
+          )
           break
         case 'cylinder':
-          this.world.createCollider(RAPIER.ColliderDesc.cylinder(desc.hy, Math.max(desc.hx, desc.hz)), body)
+          this.world.createCollider(
+            RAPIER.ColliderDesc.cylinder(desc.hy, Math.max(desc.hx, desc.hz)),
+            body
+          )
           break
         case 'ball':
-          this.world.createCollider(RAPIER.ColliderDesc.ball(Math.max(desc.hx, desc.hy, desc.hz)), body)
+          this.world.createCollider(
+            RAPIER.ColliderDesc.ball(Math.max(desc.hx, desc.hy, desc.hz)),
+            body
+          )
           break
       }
     })
@@ -84,8 +110,10 @@ export class ClientPhysics {
     )
   }
 
-  step(inputs: Inputs, yaw: number): void {
+  step(inputs: Inputs, yaw: number, dt?: number): void {
     if (!this.playerBody || !this.hasColliders) return
+
+    if (dt !== undefined && dt > 0) this.world.timestep = dt
 
     applyMovement(this.velocity, inputs, yaw)
 
@@ -104,7 +132,13 @@ export class ClientPhysics {
   }
 
   // Le serveur envoie player.{x,y,z} (position des pieds). On compare au centre du body.
-  reconcile(serverFeetX: number, serverFeetY: number, serverFeetZ: number): void {
+  // dt en secondes pour rendre la lerp indépendante du framerate.
+  reconcile(
+    serverFeetX: number,
+    serverFeetY: number,
+    serverFeetZ: number,
+    dt: number
+  ): void {
     if (!this.playerBody) return
     const t = this.playerBody.translation()
     const targetY = serverFeetY + BODY_Y_OFFSET
@@ -112,17 +146,26 @@ export class ClientPhysics {
     const dy = targetY - t.y
     const dz = serverFeetZ - t.z
 
-    if (dx * dx + dy * dy + dz * dz > RECONCILE_SNAP_DIST_SQ) {
-      this.playerBody.setTranslation({ x: serverFeetX, y: targetY, z: serverFeetZ }, true)
+    const distSq = dx * dx + dy * dy + dz * dz
+
+    if (distSq > RECONCILE_SNAP_DIST_SQ) {
+      this.playerBody.setTranslation(
+        { x: serverFeetX, y: targetY, z: serverFeetZ },
+        true
+      )
       this.playerBody.setLinvel({ x: 0, y: 0, z: 0 }, true)
       return
     }
 
+    // Deadband : sous 5cm d'écart, on trust 100% la prédiction client → zéro rubber-band
+    if (distSq < RECONCILE_DEADBAND_SQ) return
+
+    const factor = 1 - Math.exp(-dt * RECONCILE_RATE)
     this.playerBody.setTranslation(
       {
-        x: t.x + dx * RECONCILE_LERP,
-        y: t.y + dy * RECONCILE_LERP,
-        z: t.z + dz * RECONCILE_LERP,
+        x: t.x + dx * factor,
+        y: t.y + dy * factor,
+        z: t.z + dz * factor,
       },
       true
     )

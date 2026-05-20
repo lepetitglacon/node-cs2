@@ -35,6 +35,6 @@ export class Player extends Schema {
 
 export class MyRoomState extends Schema {
   @type({ map: Player }) players = new MapSchema<Player>()
-  @type("string") mapId: string = "test1";
+  @type("string") mapId: string = "test2";
   @type("string") mode: GameMode = 'matchmaking_10v10';
 }

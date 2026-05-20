@@ -9,6 +9,7 @@ import { ImpactEffects } from './ImpactEffects.tsx'
 import { OtherPlayer } from './OtherPlayer.tsx'
 import { MapLoader } from './MapLoader.tsx'
 import { DebugMapMesh } from './DebugMapMesh.tsx'
+import { EnvironmentSetup } from './EnvironmentSetup.tsx'
 import { GameOverlay } from '@/components/GameOverlay.tsx'
 import { DeathScreen } from '@/components/DeathScreen.tsx'
 import { LoadingScreen } from '@/components/LoadingScreen.tsx'
@@ -79,7 +80,9 @@ export const Game = () => {
             gap: 8,
           }}
         >
-          <span style={{ color: currentPlayer?.isReloading ? '#f90' : 'white' }}>
+          <span
+            style={{ color: currentPlayer?.isReloading ? '#f90' : 'white' }}
+          >
             {currentPlayer?.isReloading
               ? 'RELOAD...'
               : (currentPlayer?.bullets ?? 30)}
@@ -118,7 +121,7 @@ export const Game = () => {
         <Scene>
           <hemisphericLight
             name="light1"
-            intensity={0.7}
+            intensity={0.5}
             direction={new Vector3(0, 1, 0)}
           />
           <AssetPreloader
@@ -126,6 +129,7 @@ export const Game = () => {
             onProgress={setProgress}
             onReady={() => setAssetsReady(true)}
           />
+          {assetsReady && <EnvironmentSetup envKey="grasslands_sunset" />}
           {playing && (
             <>
               <MapLoader mapId={mapId} />

@@ -22,7 +22,7 @@ export const DebugMapMesh = ({ room, isDebug }: Props) => {
   useEffect(() => {
     if (!scene) return
 
-    const unsubscribe = room.onMessage('debugMapMesh', (geometries: MeshGeometry[]) => {
+    const unsubscribe = room.onMessage('debugMapMesh', ({ geometries }: { geometries: MeshGeometry[] }) => {
       meshesRef.current.forEach((m) => m.dispose())
       meshesRef.current = []
 
